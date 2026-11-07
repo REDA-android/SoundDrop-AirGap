@@ -1,0 +1,23 @@
+node_modules/
+.next/
+out/
+.env*.local
+.DS_Store
+*.log
+.npm/
+.cache/
+.local/
+.config/
+.bash*
+.profile
+.gitconfig
+.gemini
+.gemini/
+REDA-android/
+/upload/
+*.png
+tsconfig.tsbuildinfo
+.vercel
+
+# External Vendor Repositories
+external-repos/

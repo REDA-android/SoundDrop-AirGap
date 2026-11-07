@@ -1,0 +1,224 @@
+export component SoundDropWindow inherits Window {
+    title: "Sound Drop Native — Air-Gapped Acoustic System (Zero-Web)";
+    preferred-width: 900px;
+    preferred-height: 640px;
+    background: #07080a;
+
+    in-out property <string> device-state: "STANDBY";
+    in-out property <float> snr-db: 22.4;
+    in-out property <float> doppler-shift: 0.0;
+    in-out property <float> tof-distance: 0.42;
+    in-out property <bool> data-diode-active: false;
+    in-out property <string> active-band: "AUDIBLE";
+
+    callback emit-pairing-ping();
+    callback toggle-data-diode();
+    callback switch-band(string);
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 16px;
+
+        // Top Navigation & Security Header
+        HorizontalLayout {
+            height: 48px;
+            alignment: space-between;
+
+            VerticalLayout {
+                Text {
+                    text: "SOUND DROP NATIVE";
+                    font-size: 16px;
+                    font-weight: 800;
+                    color: #f1f5f9;
+                    letter-spacing: 1.5px;
+                }
+                Text {
+                    text: "Zero-Web • Compiled Native GPU UI • Air-Gap Data Diode";
+                    font-size: 10px;
+                    color: #64748b;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                Rectangle {
+                    background: root.data-diode-active ? #4c0519 : #0f172a;
+                    border-width: 0.5px;
+                    border-color: root.data-diode-active ? #f43f5e : #334155;
+                    border-radius: 8px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+
+                    TouchArea {
+                        clicked => { root.toggle-data-diode(); }
+                    }
+
+                    Text {
+                        text: root.data-diode-active ? "DIODE: RX-ONLY (LOCKED)" : "DIODE: BIDIRECTIONAL";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: root.data-diode-active ? #fda4af : #94a3b8;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Central Radar Stage & Kinetic Canvas
+        Rectangle {
+            background: #0b0e14;
+            border-width: 0.5px;
+            border-color: #ffffff15;
+            border-radius: 24px;
+            clip: true;
+
+            // Concentric Ambient Acoustic Rings
+            Rectangle {
+                width: 280px;
+                height: 280px;
+                border-width: 0.5px;
+                border-color: #ffffff10;
+                border-radius: 140px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            Rectangle {
+                width: 440px;
+                height: 440px;
+                border-width: 0.5px;
+                border-color: #ffffff08;
+                border-radius: 220px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            // Central Metalforge Emitter Node
+            Rectangle {
+                width: 180px;
+                height: 180px;
+                border-radius: 90px;
+                background: root.device-state == "TRANSMITTING" ? #083344 : #151922;
+                border-width: 0.5px;
+                border-color: root.device-state == "TRANSMITTING" ? #22d3ee : #ffffff20;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+
+                TouchArea {
+                    clicked => { root.emit-pairing-ping(); }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+
+                    Text {
+                        text: root.device-state == "TRANSMITTING" ? "EMITTING..." : "TAP TO EMIT";
+                        font-size: 13px;
+                        font-weight: 800;
+                        color: root.device-state == "TRANSMITTING" ? #67e8f9 : #f8fafc;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: root.active-band;
+                        font-size: 10px;
+                        color: #94a3b8;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            // Page-Mascot Native Vector Representation in Bottom-Right
+            Rectangle {
+                width: 120px;
+                height: 120px;
+                x: parent.width - 140px;
+                y: parent.height - 140px;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 6px;
+
+                    // Mascot Antenna & Face
+                    Rectangle {
+                        width: 56px;
+                        height: 56px;
+                        border-radius: 16px;
+                        background: root.snr-db < 10.0 ? #450a0a : #0f172a;
+                        border-width: 0.5px;
+                        border-color: root.snr-db < 10.0 ? #ef4444 : #38bdf8;
+
+                        Text {
+                            text: root.snr-db < 10.0 ? ">_<" : (root.device-state == "TRANSMITTING" ? "^o^" : "•ᴗ•");
+                            font-size: 18px;
+                            font-weight: 700;
+                            color: root.snr-db < 10.0 ? #fca5a5 : #38bdf8;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: root.snr-db < 10.0 ? "MOVE CLOSER" : "MASCOT ALERT";
+                        font-size: 9px;
+                        font-weight: 700;
+                        color: root.snr-db < 10.0 ? #f87171 : #94a3b8;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Live Telemetry Bar: SNR, Doppler Shift & ToF Distance
+        HorizontalLayout {
+            height: 48px;
+            spacing: 12px;
+
+            Rectangle {
+                background: #0f172a;
+                border-width: 0.5px;
+                border-color: #334155;
+                border-radius: 12px;
+                Text {
+                    text: "SNR: " + Math.round(root.snr-db) + " dB";
+                    color: root.snr-db > 15.0 ? #34d399 : #fbbf24;
+                    font-size: 12px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                background: #0f172a;
+                border-width: 0.5px;
+                border-color: #334155;
+                border-radius: 12px;
+                Text {
+                    text: "DOPPLER: " + Math.round(root.doppler-shift) + " Hz";
+                    color: #38bdf8;
+                    font-size: 12px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                background: #0f172a;
+                border-width: 0.5px;
+                border-color: #334155;
+                border-radius: 12px;
+                Text {
+                    text: "ToF DISTANCE: " + root.tof-distance + " m (<1.5m OK)";
+                    color: root.tof-distance < 1.5 ? #34d399 : #f87171;
+                    font-size: 12px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

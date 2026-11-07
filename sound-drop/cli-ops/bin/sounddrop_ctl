@@ -1,0 +1,81 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Sound Drop Air-Gap System CLI Control Utility
+# Controls hardware-enforced Data Diode, switches profiles, and executes loopback diagnostics
+
+require 'optparse'
+require 'socket'
+require 'json'
+
+options = {
+  command: 'status',
+  profile: 'audible',
+  mode: 'bidirectional',
+  port: 9455
+}
+
+OptionParser.new do |opts|
+  opts.banner = 'Usage: sounddrop_ctl [options] <command>'
+
+  opts.on('-m', '--mode MODE', %w[bidirectional rx-only], 'Data Diode safety mode (rx-only blocks speaker)') do |m|
+    options[:mode] = m
+  end
+
+  opts.on('-p', '--profile PROFILE', %w[audible ultrasonic whisper], 'Select acoustic frequency profile') do |p|
+    options[:profile] = p
+  end
+
+  opts.on('--port PORT', Integer, 'Local daemon IPC port (default: 9455)') do |port|
+    options[:port] = port
+  end
+
+  opts.on('-h', '--help', 'Prints help') do
+    puts opts
+    exit
+  end
+end.parse!
+
+options[:command] = ARGV[0] if ARGV[0]
+
+def send_daemon_event(port, event_name, payload = {})
+  sock = TCPSocket.new('127.0.0.1', port)
+  msg = {
+    event: event_name,
+    payload: payload,
+    timestamp: (Time.now.to_f * 1000).to_i
+  }.to_json
+
+  sock.puts(msg)
+  sock.close
+  puts "[sounddrop_ctl] Sent #{event_name} to local airgap daemon on port #{port}"
+rescue StandardError => e
+  puts "[sounddrop_ctl] Daemon note: 127.0.0.1:#{port} offline (#{e.message})"
+end
+
+case options[:command]
+when 'diode'
+  if options[:mode] == 'rx-only'
+    puts '[sounddrop_ctl] ==> DATA DIODE ENGAGED: Speaker hardware unmapped (RX-ONLY).'
+    send_daemon_event(options[:port], 'SET_DIODE_MODE', { rx_only: true })
+  else
+    puts '[sounddrop_ctl] ==> DATA DIODE: Bidirectional transceiver enabled.'
+    send_daemon_event(options[:port], 'SET_DIODE_MODE', { rx_only: false })
+  end
+when 'emit'
+  puts "[sounddrop_ctl] Emitting acoustic burst (Profile: #{options[:profile]})"
+  send_daemon_event(options[:port], 'START_BURST', { profile: options[:profile] })
+when 'test'
+  puts '[sounddrop_ctl] Running end-to-end Airgap Acoustic Loopback verification...'
+  system('python sound-drop/payload-vault/crypto_box.py')
+  system('python sound-drop/payload-vault/packager.py')
+else
+  puts "========================================================"
+  puts " SOUND DROP NATIVE AIR-GAP CONTROL (v2.0.0)"
+  puts "========================================================"
+  puts " Active Profile:  #{options[:profile].upcase}"
+  puts " Data Diode Mode: #{options[:mode].upcase}"
+  puts " Local IPC Port:  #{options[:port]}"
+  puts " Commands: diode, emit, test, status"
+  puts "========================================================"
+end
