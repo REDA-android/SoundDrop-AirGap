@@ -1,0 +1,13 @@
+[package]
+name = "sound-drop-native-gui"
+version = "2.0.0"
+edition = "2021"
+authors = ["Sound Drop Native Systems Architect"]
+description = "Compiled Native GPU UI (Slint) for Sound Drop - Zero HTML, Zero JS, Zero CSS"
+
+[dependencies]
+slint = "1.5"
+sound-drop-dsp = { path = "../dsp-engine" }
+
+[build-dependencies]
+slint-build = "1.5"

@@ -1,0 +1,17 @@
+[package]
+name = "sound-drop-dsp"
+version = "2.0.0"
+edition = "2021"
+authors = ["Sound Drop Advanced Cryptography & DSP Team"]
+description = "High-throughput real-time acoustic DSP engine with AVX2 SIMD, Doppler PLL, and ToF co-presence"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cpal = "0.15"
+ring = "0.17"
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.0"
