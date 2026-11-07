@@ -1,9 +1,12 @@
 #include "doppler_simd.hpp"
 #include <cmath>
 #include <vector>
+#include <cstring>
 
 #if defined(__AVX2__)
 #include <immintrin.h>
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
 #endif
 
 #ifndef M_PI
@@ -58,12 +61,12 @@ void sounddrop_doppler_track_block(
         in_phase_accum += i_mix;
         quad_phase_accum += q_mix;
 
-        // Phase error approximation
+        // Phase error approximation: atan2(Q, I)
         const double phase_error = std::atan2(q_mix, i_mix);
 
         // PI Loop Filter update
         integrator += tracker->ki * phase_error;
-        // Limit integrator windup (+- 150 Hz Doppler range)
+        // Anti-windup clamping (+- 150 Hz Doppler range)
         if (integrator > 150.0) integrator = 150.0;
         if (integrator < -150.0) integrator = -150.0;
 
@@ -81,7 +84,7 @@ void sounddrop_doppler_track_block(
     tracker->loop_filter_state = integrator;
     tracker->doppler_shift_hz = freq - target_freq;
 
-    // Compute lock confidence based on coherence of baseband I/Q vector
+    // Lock confidence based on coherence of baseband I/Q vector
     const double iq_magnitude = std::sqrt(in_phase_accum * in_phase_accum + quad_phase_accum * quad_phase_accum);
     const double total_rms = std::sqrt(energy_sum / static_cast<double>(length));
     if (total_rms > 1e-5) {
@@ -92,6 +95,12 @@ void sounddrop_doppler_track_block(
     }
 }
 
+/**
+ * AVX2 / NEON Vectorized Goertzel Filter Bank
+ * Evaluates 8 tone channels simultaneously using 256-bit SIMD registers.
+ * Difference equation: s[n] = x[n] + 2*cos(omega)*s[n-1] - s[n-2]
+ * Vector FMA: s_curr = _mm256_fmadd_ps(v_coeff, s_prev1, _mm256_sub_ps(v_x, s_prev2))
+ */
 void sounddrop_goertzel_avx2_compensated(
     const float* samples,
     size_t num_samples,
@@ -105,8 +114,84 @@ void sounddrop_goertzel_avx2_compensated(
         return;
     }
 
-    for (size_t k = 0; k < num_frequencies; ++k) {
-        // Compensate target tone center frequency with measured negative Doppler shift
+    // Process frequencies in chunks of 8 (SIMD AVX2 width for float32)
+    size_t k = 0;
+
+#if defined(__AVX2__)
+    for (; k + 7 < num_frequencies; k += 8) {
+        float coeff_arr[8];
+        for (int i = 0; i < 8; ++i) {
+            double compensated_freq = base_frequencies[k + i] + doppler_shift_hz;
+            double omega = 2.0 * M_PI * (compensated_freq / sample_rate);
+            coeff_arr[i] = static_cast<float>(2.0 * std::cos(omega));
+        }
+
+        __m256 v_coeff = _mm256_loadu_ps(coeff_arr);
+        __m256 s_prev1 = _mm256_setzero_ps();
+        __m256 s_prev2 = _mm256_setzero_ps();
+
+        for (size_t n = 0; n < num_samples; ++n) {
+            __m256 v_x = _mm256_set1_ps(samples[n]);
+            // s_curr = v_coeff * s_prev1 + (v_x - s_prev2)
+            __m256 s_curr = _mm256_fmadd_ps(v_coeff, s_prev1, _mm256_sub_ps(v_x, s_prev2));
+            s_prev2 = s_prev1;
+            s_prev1 = s_curr;
+        }
+
+        // Final energy: |X(f_k)|^2 = s_prev1^2 + s_prev2^2 - v_coeff * s_prev1 * s_prev2
+        __m256 s1_sq = _mm256_mul_ps(s_prev1, s_prev1);
+        __m256 s2_sq = _mm256_mul_ps(s_prev2, s_prev2);
+        __m256 cross = _mm256_mul_ps(v_coeff, _mm256_mul_ps(s_prev1, s_prev2));
+        __m256 energy = _mm256_sub_ps(_mm256_add_ps(s1_sq, s2_sq), cross);
+
+        float energy_arr[8];
+        _mm256_storeu_ps(energy_arr, energy);
+
+        double norm = static_cast<double>(num_samples) * static_cast<double>(num_samples);
+        for (int i = 0; i < 8; ++i) {
+            double p = static_cast<double>(energy_arr[i]);
+            out_energies[k + i] = (p > 0.0) ? (p / norm) : 0.0;
+        }
+    }
+#elif (defined(__ARM_NEON) || defined(__ARM_NEON__))
+    for (; k + 3 < num_frequencies; k += 4) {
+        float coeff_arr[4];
+        for (int i = 0; i < 4; ++i) {
+            double compensated_freq = base_frequencies[k + i] + doppler_shift_hz;
+            double omega = 2.0 * M_PI * (compensated_freq / sample_rate);
+            coeff_arr[i] = static_cast<float>(2.0 * std::cos(omega));
+        }
+
+        float32x4_t v_coeff = vld1q_f32(coeff_arr);
+        float32x4_t s_prev1 = vdupq_n_f32(0.0f);
+        float32x4_t s_prev2 = vdupq_n_f32(0.0f);
+
+        for (size_t n = 0; n < num_samples; ++n) {
+            float32x4_t v_x = vdupq_n_f32(samples[n]);
+            // s_curr = (v_x - s_prev2) + v_coeff * s_prev1
+            float32x4_t s_curr = vfmaq_f32(vsubq_f32(v_x, s_prev2), v_coeff, s_prev1);
+            s_prev2 = s_prev1;
+            s_prev1 = s_curr;
+        }
+
+        float32x4_t s1_sq = vmulq_f32(s_prev1, s_prev1);
+        float32x4_t s2_sq = vmulq_f32(s_prev2, s_prev2);
+        float32x4_t cross = vmulq_f32(v_coeff, vmulq_f32(s_prev1, s_prev2));
+        float32x4_t energy = vsubq_f32(vaddq_f32(s1_sq, s2_sq), cross);
+
+        float energy_arr[4];
+        vst1q_f32(energy_arr, energy);
+
+        double norm = static_cast<double>(num_samples) * static_cast<double>(num_samples);
+        for (int i = 0; i < 4; ++i) {
+            double p = static_cast<double>(energy_arr[i]);
+            out_energies[k + i] = (p > 0.0) ? (p / norm) : 0.0;
+        }
+    }
+#endif
+
+    // Scalar fallback for remaining frequencies or non-SIMD architectures
+    for (; k < num_frequencies; ++k) {
         const double compensated_freq = base_frequencies[k] + doppler_shift_hz;
         const double omega = 2.0 * M_PI * (compensated_freq / sample_rate);
         const double coeff = 2.0 * std::cos(omega);
@@ -115,27 +200,11 @@ void sounddrop_goertzel_avx2_compensated(
         double s1 = 0.0;
         double s2 = 0.0;
 
-#if defined(__AVX2__)
-        size_t i = 0;
-        for (; i + 7 < num_samples; i += 8) {
-            for (size_t offset = 0; offset < 8; ++offset) {
-                s0 = static_cast<double>(samples[i + offset]) + coeff * s1 - s2;
-                s2 = s1;
-                s1 = s0;
-            }
-        }
-        for (; i < num_samples; ++i) {
-            s0 = static_cast<double>(samples[i]) + coeff * s1 - s2;
-            s2 = s1;
-            s1 = s0;
-        }
-#else
         for (size_t i = 0; i < num_samples; ++i) {
             s0 = static_cast<double>(samples[i]) + coeff * s1 - s2;
             s2 = s1;
             s1 = s0;
         }
-#endif
 
         const double power = (s1 * s1) + (s2 * s2) - (coeff * s1 * s2);
         out_energies[k] = (power > 0.0) ? (power / (static_cast<double>(num_samples) * static_cast<double>(num_samples))) : 0.0;
