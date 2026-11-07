@@ -2,747 +2,1422 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Radio,
-  WifiOff,
-  Volume2,
   Mic,
-  MicOff,
-  ShieldCheck,
-  Zap,
-  Lock,
-  Sparkles,
-  Sliders,
-  Folder,
-  Smartphone,
-  Laptop,
-  LayoutGrid,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Download,
   RotateCcw,
-  Cpu,
+  AlertCircle,
+  CheckCircle2,
+  FileCheck,
+  HardDrive,
+  Copy,
+  Check,
+  Radio,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-  AcousticBand,
-  TransmissionMode,
-  ModemConfig,
-  DemodState,
-  Telemetry,
-  Packet,
-  DropResult,
-} from '@/types/acoustic';
-import { PeerBubble, AcousticTelemetry } from '@/types/sound-drop';
-import { getConfigForBand, AUDIBLE_CONFIG, ULTRASONIC_CONFIG, WHISPER_CONFIG } from '@/lib/dsp/constants';
-import { AudioManager } from '@/lib/audio/audio-manager';
-import { packetizeText, packetizeFile } from '@/lib/protocol/packetizer';
-import { prepareImageForAcousticDrop, renderBlurHashToDataUrl } from '@/lib/part8-media-crypto/image-micro-prep';
-import { encryptAcousticPayload, decryptAcousticPayload } from '@/lib/part8-media-crypto/acoustic-cipher';
-import { airdropSynth } from '@/lib/part5-ui-sfx/airdrop-synth';
-import { peerDiscovery } from '@/lib/part2-p2p/peer-discovery';
-import { saveReceivedDrop } from '@/lib/part3-offline/drop-storage';
-import { useSoundDropStore } from '@/store/useSoundDropStore';
-import { useWakeLock } from '@/hooks/useWakeLock';
+  AcousticBandMode,
+  AcousticEngineType,
+  isValidRoomToken,
+} from '@/lib/audio/dsp-constants';
+import { FskModulator } from '@/lib/audio/FskModulator';
+import { FskDemodulator } from '@/lib/audio/FskDemodulator';
+import {
+  PeerConnectionManager,
+  WebRTCStats,
+  TransportEngineType,
+} from '@/lib/webrtc/PeerConnection';
+import {
+  DataChannelStreamer,
+  FileMetadata,
+  TransferProgress,
+} from '@/lib/webrtc/DataChannelManager';
+import { SignalingClient } from '@/lib/webrtc/signaling';
+import {
+  encodeOfflineSdpToken,
+  decodeOfflineSdpToken,
+  encodeDirectAcousticPayload,
+  decodeDirectAcousticPayload,
+} from '@/lib/webrtc/offline-sdp';
+import {
+  SavedFileResult,
+  saveWithBrowserFsAccess,
+  saveWithStreamSaver,
+  formatByteSize,
+} from '@/lib/storage/stream-saver';
+import { RealDirectoryAnalysis } from '@/lib/storage/directory-scanner';
+import {
+  extractRoomIdFromPhrase,
+  generateWormholePhrase,
+} from '@/lib/protocols/wormhole-webtorrent';
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { HairlineFigure } from '@/components/ui/HairlineFigures';
+import { MorphIcon } from '@/components/ui/MorphIcon';
+import { DrawablySketchBadge } from '@/components/ui/DrawablySketchBadge';
+import { MetalForgeShaderOrb } from '@/components/canvas/MetalForgeShaderOrb';
+import { SpectrumVisualizer } from '@/components/audio/SpectrumVisualizer';
+import { AcousticTransmitter } from '@/components/audio/AcousticTransmitter';
+import { AcousticReceiver } from '@/components/audio/AcousticReceiver';
+import { FileDropzone } from '@/components/transfer/FileDropzone';
+import { PeerCard } from '@/components/transfer/PeerCard';
+import { TransferMonitor } from '@/components/transfer/TransferMonitor';
+import { MeshParticleCanvas } from '@/components/canvas/MeshParticleCanvas';
+import {
+  MultiProtocolPanel,
+  UnifiedProtocol,
+  SharedClipboardEntry,
+} from '@/components/transfer/MultiProtocolPanel';
 
-import { AirDropBubbleRadar } from '@/components/radar/AirDropBubbleRadar';
-import { AudioUnlockOverlay } from '@/components/AudioUnlockOverlay';
-import { SonarDropZone } from '@/components/SonarDropZone';
-import { SpectrogramDrawer } from '@/components/studio/SpectrogramDrawer';
-import { GoertzelSymbolBars } from '@/components/studio/GoertzelSymbolBars';
-import { PacketMatrixGrid } from '@/components/studio/PacketMatrixGrid';
-import { AcousticSettings } from '@/components/AcousticSettings';
-import { IncomingDropSheet } from '@/components/modals/IncomingDropSheet';
-import { LoopbackTestPanel } from '@/components/modals/LoopbackTestPanel';
-import { AcousticPairingTx } from '@/lib/audio/acoustic-pairing';
-import { AcousticBubbleButton } from '@/components/AcousticBubbleButton';
-import { MacDropReceiver } from '@/components/MacDropReceiver';
-import { SoundDropNativeApp } from '../../sound-drop-native/desktop-ui/src/components/SoundDropNativeApp';
+type AppMode = 'IDLE' | 'TRANSMITTING' | 'RECEIVING' | 'TRANSFERRING' | 'COMPLETED' | 'ERROR';
 
-export default function SoundDropStudio() {
-  const {
-    peers,
-    selectedPeerId,
-    isTransmitting,
-    isListening,
-    settings,
-    addPeer,
-    updatePeerProgress,
-    setIsTransmitting,
-    setIsListening,
-    setSelectedPeerId,
-    updateSettings,
-  } = useSoundDropStore();
+export default function SoundDropApp() {
+  // Primary Navigation Tab (Send vs Receive)
+  const [activeTab, setActiveTab] = useState<'SEND' | 'RECEIVE'>('SEND');
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [activeProtocol, setActiveProtocol] = useState<UnifiedProtocol>('ACOUSTIC');
 
-  const [band, setBand] = useState<AcousticBand>('audible');
-  const [txMode, setTxMode] = useState<TransmissionMode>('broadcast');
-  const [loopbackActive, setLoopbackActive] = useState<boolean>(true);
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false);
+  // Application State
+  const [mode, setMode] = useState<AppMode>('IDLE');
+  const [role, setRole] = useState<'initiator' | 'receiver'>('initiator');
+  const [bandMode, setBandMode] = useState<AcousticBandMode>('AUDIBLE');
+  const [acousticEngine, setAcousticEngine] = useState<AcousticEngineType>('GGWAVE');
+  const [transportEngine, setTransportEngine] = useState<TransportEngineType>('HYBRID_AUTO');
+  const [statusMessage, setStatusMessage] = useState<string>('STANDBY');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
+  const [offlineSdpToken, setOfflineSdpToken] = useState<string>('');
 
-  // App interaction mode
-  type AppMode = 'studio' | 'phone-emitter' | 'mac-receiver' | 'native-desktop';
-  const [appMode, setAppMode] = useState<AppMode>('studio');
-
-  // Acoustic Proximity Pairing states (Phone-to-Mac)
-  const [pairingStatus, setPairingStatus] = useState<'idle' | 'emitting' | 'paired'>('idle');
-  const [pairedDeviceName, setPairedDeviceName] = useState<string>('MacBook Pro');
-  const [queuedPayload, setQueuedPayload] = useState<{ name: string; type: 'text' | 'file'; size?: number } | null>({
-    name: 'Photo_Drop_BlurHash.webp',
-    type: 'file',
-    size: 48200,
+  // Real File & Real Directory Analysis State (Zero Mock Data)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [directoryAnalysis, setDirectoryAnalysis] = useState<RealDirectoryAnalysis | null>(null);
+  const [currentRoomId, setCurrentRoomId] = useState<string>('');
+  const [transferProgress, setTransferProgress] = useState<TransferProgress>({
+    bytesTransferred: 0,
+    totalBytes: 0,
+    currentChunk: 0,
+    totalChunks: 0,
+    bufferedAmount: 0,
+    speedBps: 0,
   });
-  const pairingTxRef = useRef<AcousticPairingTx | null>(null);
+  const [activeMetadata, setActiveMetadata] = useState<FileMetadata | null>(null);
+  const [downloadResult, setDownloadResult] = useState<SavedFileResult | null>(null);
+  const [isChecksumVerified, setIsChecksumVerified] = useState<boolean | null>(null);
 
-  // Demodulator state
-  const [demodState, setDemodState] = useState<DemodState>('IDLE');
-  const [telemetry, setTelemetry] = useState<AcousticTelemetry | null>(null);
-  const [totalPackets, setTotalPackets] = useState<number>(0);
-  const [receivedMap, setReceivedMap] = useState<Map<number, Packet>>(new Map());
-  const [healedIndices, setHealedIndices] = useState<Set<number>>(new Set());
+  // WebRTC & Audio Telemetry
+  const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new');
+  const [rtcStats, setRtcStats] = useState<WebRTCStats | null>(null);
+  const [incomingClipboards, setIncomingClipboards] = useState<SharedClipboardEntry[]>([]);
+  const [activeRoomsList, setActiveRoomsList] = useState<
+    Array<{ roomId: string; pakePhrase?: string }>
+  >([]);
 
-  // Result modal
-  const [receivedDrop, setReceivedDrop] = useState<DropResult | null>(null);
-  const [lastSelfTestSuccess, setLastSelfTestSuccess] = useState<boolean | null>(null);
+  // Acoustic Modulation Telemetry
+  const [isAcousticEmitting, setIsAcousticEmitting] = useState<boolean>(false);
+  const [acousticCurrentBit, setAcousticCurrentBit] = useState<number>(0);
+  const [acousticTotalBits, setAcousticTotalBits] = useState<number>(0);
+  const [acousticCurrentFreq, setAcousticCurrentFreq] = useState<number | undefined>(undefined);
 
-  // Audio manager reference
-  const audioManagerRef = useRef<AudioManager | null>(null);
-  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  // Acoustic Demodulation & Real-Time FFT Telemetry
+  const [spectralBuffer, setSpectralBuffer] = useState<Float32Array | null>(null);
+  const [timeDomainBuffer, setTimeDomainBuffer] = useState<Float32Array | null>(null);
+  const [dominantFreq, setDominantFreq] = useState<number | undefined>(undefined);
+  const [snrDb, setSnrDb] = useState<number>(0);
+  const [actualSampleRate, setActualSampleRate] = useState<number>(48000);
+  const [demodStateText, setDemodStateText] = useState<string>('En attente de signal...');
+  const [demodStateCode, setDemodStateCode] = useState<number>(1);
 
-  // Payload Estimator calculation
-  const [currentPayloadBytes, setCurrentPayloadBytes] = useState<number>(0);
-  const [estimatedPackets, setEstimatedPackets] = useState<number>(0);
-  const [estimatedDurationSec, setEstimatedDurationSec] = useState<number>(0);
+  // Manual token input & QR URL
+  const [manualTokenInput, setManualTokenInput] = useState<string>('');
+  const [shareUrl, setShareUrl] = useState<string>('');
 
-  // Automatic Screen Wake Lock during active transmission or listening
-  useWakeLock(isTransmitting || isListening);
+  // Hardware Engine References
+  const modulatorRef = useRef<FskModulator | null>(null);
+  const demodulatorRef = useRef<FskDemodulator | null>(null);
+  const peerRef = useRef<PeerConnectionManager | null>(null);
+  const streamerRef = useRef<DataChannelStreamer | null>(null);
+  const signalingRef = useRef<SignalingClient | null>(null);
+  const autoChirpIntervalRef = useRef<number | null>(null);
 
-  const currentConfig: ModemConfig = getConfigForBand(band);
+  const cleanupEngines = useCallback(() => {
+    if (autoChirpIntervalRef.current !== null) {
+      clearInterval(autoChirpIntervalRef.current);
+      autoChirpIntervalRef.current = null;
+    }
+    if (modulatorRef.current) {
+      modulatorRef.current.close();
+      modulatorRef.current = null;
+    }
+    if (demodulatorRef.current) {
+      demodulatorRef.current.stop();
+      demodulatorRef.current = null;
+    }
+    if (peerRef.current) {
+      peerRef.current.close();
+      peerRef.current = null;
+    }
+    if (signalingRef.current) {
+      signalingRef.current.close();
+      signalingRef.current = null;
+    }
+  }, []);
 
-  // Initialize Audio Manager Singleton on mount
+  // Purge any stale Service Worker caches so new builds load immediately with 0ms lag
   useEffect(() => {
-    const mgr = AudioManager.getInstance();
-    audioManagerRef.current = mgr;
-    mgr.setConfig(currentConfig);
-    mgr.setLoopback(loopbackActive);
-    setAnalyserNode(mgr.getAnalyser());
-
-    return () => {
-      mgr.stopListening();
-      mgr.stopPlayback();
-    };
-  }, []);
-
-  // Update audio manager config when band changes
-  const handleBandChange = useCallback((newBand: AcousticBand) => {
-    setBand(newBand);
-    const cfg = getConfigForBand(newBand);
-    if (audioManagerRef.current) {
-      audioManagerRef.current.setConfig(cfg);
+    if (typeof window !== 'undefined') {
+      if ('caches' in window) {
+        caches
+          .keys()
+          .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+          .catch(() => {});
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((regs) => Promise.all(regs.map((r) => r.update())))
+          .catch(() => {});
+      }
     }
   }, []);
 
-  // Toggle Loopback mode
-  const handleToggleLoopback = useCallback((enabled: boolean) => {
-    setLoopbackActive(enabled);
-    if (audioManagerRef.current) {
-      audioManagerRef.current.setLoopback(enabled);
-    }
-  }, []);
-
-  // Start or Stop Listening via Microphone
-  const handleToggleListening = useCallback(async () => {
-    const mgr = audioManagerRef.current;
-    if (!mgr) return;
-
-    if (isListening) {
-      mgr.stopListening();
-      setIsListening(false);
-      setDemodState('IDLE');
-      airdropSynth.setModemActive(false);
-    } else {
+  // Poll active signaling rooms when in RECEIVE tab and online (only update state if changed)
+  useEffect(() => {
+    if (activeTab !== 'RECEIVE' || mode !== 'IDLE') return;
+    let active = true;
+    let prevSignature = '';
+    const fetchActiveRooms = async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       try {
-        await mgr.ensureAudioContext();
-        setAnalyserNode(mgr.getAnalyser());
+        const res = await fetch('/api/signal/rooms', { headers: { 'Cache-Control': 'no-store' } });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          rooms?: Array<{ roomId: string; pakePhrase?: string }>;
+        };
+        if (active && data.rooms) {
+          const sig = data.rooms.map((r) => r.roomId).join(',');
+          if (sig !== prevSignature) {
+            prevSignature = sig;
+            setActiveRoomsList(data.rooms);
+          }
+        }
+      } catch {
+        // Ignored offline
+      }
+    };
+    void fetchActiveRooms();
+    const timer = window.setInterval(() => void fetchActiveRooms(), 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [activeTab, mode]);
 
-        await mgr.startListening({
-          onTelemetry: (t) => {
-            setTelemetry({
-              snrDb: t.snrDb,
-              noiseFloor: t.noiseFloor,
-              peakEnergy: t.peakEnergy,
-              detectedSymbol: t.detectedSymbol,
-              goertzelEnergies: t.goertzelEnergies,
-              confidence: t.confidence,
-              activeFrequency: t.activeFrequency,
-              state: t.lockedState === 'DECODING_SYMBOLS' ? 'RECEIVING' : t.lockedState === 'LOCKED_ON_SIGNAL' ? 'LOCKED' : 'SCANNING',
-              framesDecoded: t.framesDecoded,
-              crcErrors: t.crcErrors,
-              fecCorrections: t.fecCorrections,
-            });
-            setDemodState(t.lockedState);
-          },
-          onPacketReceived: (packet, healed) => {
-            setTotalPackets(packet.header.totalPackets);
-            setReceivedMap((prev) => {
-              const updated = new Map(prev);
-              updated.set(packet.header.packetIndex, packet);
-              return updated;
-            });
-            if (healed) {
-              setHealedIndices((prev) => new Set(prev).add(packet.header.packetIndex));
-            }
-
-            // Update peer bubble progress if peer selected
-            if (selectedPeerId) {
-              const pct = Math.round(((receivedMap.size + 1) / packet.header.totalPackets) * 100);
-              updatePeerProgress(selectedPeerId, pct, 'receiving');
-            }
-          },
-          onDropCompleted: async (drop) => {
-            airdropSynth.setModemActive(false);
-            setReceivedDrop(drop);
-
-            // Persist to offline IndexedDB
-            await saveReceivedDrop({
-              id: drop.id,
-              sessionId: parseInt(drop.id.split('_')[1] || '0', 10),
-              type: drop.type,
-              name: drop.name,
-              mimeType: drop.mimeType,
-              size: drop.size,
-              text: drop.text,
-              data: drop.data,
-              timestamp: drop.timestamp,
-            });
-
-            if (selectedPeerId) {
-              updatePeerProgress(selectedPeerId, 100, 'complete');
-            }
-          },
-        });
-        setIsListening(true);
-        setDemodState('LISTENING_FOR_CHIRP');
-        airdropSynth.playRadarPing();
-      } catch (err) {
-        console.error('Microphone activation failed:', err);
-        alert('Microphone permission is required to receive acoustic drops.');
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const roomParam = params.get('room');
+      if (roomParam && roomParam.trim().length >= 4) {
+        const cleanToken = extractRoomIdFromPhrase(roomParam);
+        setActiveTab('RECEIVE');
+        setManualTokenInput(cleanToken);
+        void connectReceiverToRoom(cleanToken, false);
       }
     }
-  }, [isListening, selectedPeerId, receivedMap.size, updatePeerProgress, setIsListening]);
+    return () => {
+      cleanupEngines();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Transmit Text Payload
-  const handleSendText = useCallback(
-    async (text: string) => {
-      const mgr = audioManagerRef.current;
-      if (!mgr) return;
+  const resetToIdle = () => {
+    cleanupEngines();
+    setMode('IDLE');
+    setRole('initiator');
+    setStatusMessage('STANDBY');
+    setErrorMessage(null);
+    setSelectedFile(null);
+    setDirectoryAnalysis(null);
+    setCurrentRoomId('');
+    setOfflineSdpToken('');
+    setShareUrl('');
+    setTransferProgress({
+      bytesTransferred: 0,
+      totalBytes: 0,
+      currentChunk: 0,
+      totalChunks: 0,
+      bufferedAmount: 0,
+      speedBps: 0,
+    });
+    setActiveMetadata(null);
+    setDownloadResult(null);
+    setIsChecksumVerified(null);
+    setConnectionState('new');
+    setRtcStats(null);
+    setIsAcousticEmitting(false);
+    setAcousticCurrentBit(0);
+    setAcousticTotalBits(0);
+    setSpectralBuffer(null);
+    setTimeDomainBuffer(null);
+    setDominantFreq(undefined);
+    setSnrDb(0);
+    setManualTokenInput('');
+  };
 
-      airdropSynth.playDropWhoosh();
-      airdropSynth.setModemActive(true);
-
-      const isUltrasonic = band === 'ultrasonic' || band === 'whisper';
-      const amplitude = band === 'whisper' ? 0.2 : isUltrasonic ? 0.95 : 0.85;
-      let payloadBytes = new TextEncoder().encode(text);
-
-      // E2EE Encryption if enabled
-      if (settings.encryptionEnabled && settings.encryptionPin) {
-        payloadBytes = new Uint8Array(await encryptAcousticPayload(payloadBytes, settings.encryptionPin));
+  const refreshLocalOfflineSdpToken = () => {
+    setTimeout(() => {
+      if (!peerRef.current) return;
+      const { description, candidates } = peerRef.current.getLocalDescriptionAndCandidates();
+      if (description) {
+        setOfflineSdpToken(encodeOfflineSdpToken(description, candidates));
       }
+    }, 550);
+  };
 
-      const packetization = packetizeText(new TextDecoder().decode(payloadBytes), isUltrasonic);
-
-      // Estimate transfer metrics
-      const numPackets = packetization.packets.length;
-      const msPerSymbol = currentConfig.symbolDurationMs;
-      const totalSymbols = numPackets * 88 * 2;
-      const totalSec = currentConfig.preambleDurationMs / 1000 + (totalSymbols * msPerSymbol) / 1000;
-
-      setCurrentPayloadBytes(packetization.totalBytes);
-      setEstimatedPackets(numPackets);
-      setEstimatedDurationSec(totalSec);
-
-      setTotalPackets(numPackets);
-      setReceivedMap(new Map());
-      setHealedIndices(new Set());
-
-      if (loopbackActive && !isListening) {
-        await handleToggleListening();
-      }
-
-      const modulator = mgr.getModulator();
-      const pcm = modulator.synthesizeTransmission(packetization.packets, {
-        amplitude,
-        includePreamble: true,
-      });
-
-      setIsTransmitting(true);
-      await mgr.playPcm(pcm, () => {
-        setIsTransmitting(false);
-        airdropSynth.setModemActive(false);
-      });
-    },
-    [band, currentConfig, loopbackActive, isListening, settings, handleToggleListening, setIsTransmitting]
-  );
-
-  // Transmit File or Progressive Image Payload
-  const handleSendFile = useCallback(
-    async (file: File) => {
-      const mgr = audioManagerRef.current;
-      if (!mgr) return;
-
-      airdropSynth.playDropWhoosh();
-      airdropSynth.setModemActive(true);
-
-      const isUltrasonic = band === 'ultrasonic' || band === 'whisper';
-      const amplitude = band === 'whisper' ? 0.2 : isUltrasonic ? 0.95 : 0.85;
-      const isImage = file.type.startsWith('image/');
-
-      let fileBytes: Uint8Array;
-      let blurHashStr: string | undefined;
-
-      if (isImage) {
-        try {
-          const prep = await prepareImageForAcousticDrop(file);
-          fileBytes = new Uint8Array(prep.compressedBytes);
-          blurHashStr = prep.blurHash;
-
-          // Render instant BlurHash preview inside selected target peer bubble!
-          if (selectedPeerId) {
-            const previewUrl = renderBlurHashToDataUrl(blurHashStr);
-            useSoundDropStore.setState((state) => ({
-              peers: state.peers.map((p) =>
-                p.id === selectedPeerId ? { ...p, blurHashPreview: previewUrl } : p
-              ),
-            }));
-          }
-        } catch {
-          const buf = await file.arrayBuffer();
-          fileBytes = new Uint8Array(buf);
-        }
-      } else {
-        const buf = await file.arrayBuffer();
-        fileBytes = new Uint8Array(buf);
-      }
-
-      // E2EE Encryption if enabled
-      if (settings.encryptionEnabled && settings.encryptionPin) {
-        fileBytes = new Uint8Array(await encryptAcousticPayload(fileBytes, settings.encryptionPin));
-      }
-
-      const packetization = packetizeFile(
-        fileBytes,
-        {
-          name: file.name,
-          size: fileBytes.length,
-          type: file.type || 'application/octet-stream',
-          lastModified: file.lastModified,
+  const emitChirpOnce = async (
+    payload: string,
+    band: AcousticBandMode,
+    engine: AcousticEngineType
+  ) => {
+    if (!modulatorRef.current) {
+      modulatorRef.current = new FskModulator();
+    }
+    if (modulatorRef.current.getTransmissionState()) return;
+    try {
+      setIsAcousticEmitting(true);
+      await modulatorRef.current.transmitPayload(
+        payload,
+        (current, total, freq) => {
+          setAcousticCurrentBit(current);
+          setAcousticTotalBits(total);
+          setAcousticCurrentFreq(freq);
         },
-        isUltrasonic
+        band,
+        engine,
+        (spectralData, peakFreq, liveSnr, sr, timeDomain) => {
+          setSpectralBuffer(spectralData);
+          setTimeDomainBuffer(timeDomain);
+          setDominantFreq(peakFreq);
+          setSnrDb(liveSnr);
+          setActualSampleRate(sr);
+        }
+      );
+    } catch (e) {
+      console.warn('Audio emission warning:', e);
+    } finally {
+      setIsAcousticEmitting(false);
+    }
+  };
+
+  /**
+   * Direct 100% Air-Gap Acoustic File Emission (0% Network / 0% Wi-Fi / 0% Internet)
+   * Encodes the file payload directly into an `OFL:` Reed-Solomon acoustic frame.
+   */
+  const handleEmitDirectAcousticPayload = async () => {
+    if (!selectedFile) return;
+    setErrorMessage(null);
+    // For files > 96 bytes (photos, PDFs, ZIPs), use full P2P DataChannel + Acoustic Room Beacon
+    // so the file is never truncated to a 96-byte acoustic frame.
+    if (selectedFile.size > 96) {
+      await startTransmitter();
+      return;
+    }
+    setStatusMessage('AIR-GAP TX');
+    const frame = await encodeDirectAcousticPayload(selectedFile);
+    await emitChirpOnce(frame, bandMode, 'GGWAVE');
+    setStatusMessage('AIR-GAP ENVOYÉ');
+  };
+
+  /**
+   * Serverless Offline WebRTC Handshake (`SDO1:...` Offer or `SDA1:...` Answer)
+   * Works on local Wi-Fi or Hotspot with 0% Internet.
+   */
+  const handleApplyRemoteOfflineSdp = async (rawToken: string) => {
+    const parsed = decodeOfflineSdpToken(rawToken);
+    if (!parsed) {
+      setErrorMessage('Jeton SDP Hors-Ligne invalide (format attendu : SDO1:... ou SDA1:...).');
+      return;
+    }
+
+    setErrorMessage(null);
+
+    // Case A: We are the Sender and we received the Receiver's Offline Answer (`SDA1:...`)
+    if (parsed.description.type === 'answer' && peerRef.current) {
+      setStatusMessage('HANDSHAKE HORS-LIGNE');
+      await peerRef.current.applyAnswer(parsed.description);
+      for (const cand of parsed.candidates) {
+        await peerRef.current.addIceCandidate(cand);
+      }
+      return;
+    }
+
+    // Case B: We are the Receiver and we received the Sender's Offline Offer (`SDO1:...`)
+    if (parsed.description.type === 'offer') {
+      if (peerRef.current) {
+        peerRef.current.close();
+      }
+      setRole('receiver');
+      setMode('RECEIVING');
+      setCurrentRoomId('OFFLINE');
+      setStatusMessage('RÉPONSE HORS-LIGNE');
+
+      peerRef.current = new PeerConnectionManager({
+        onSignalNeeded: async () => {
+          refreshLocalOfflineSdpToken();
+        },
+        onConnectionStateChange: (state) => {
+          setConnectionState(state);
+          if (state === 'connected') {
+            setErrorMessage(null);
+            setStatusMessage('LINKED OFFLINE');
+          }
+        },
+        onDataChannelReady: (channel) => {
+          setErrorMessage(null);
+          streamerRef.current = new DataChannelStreamer(channel);
+          setMode('TRANSFERRING');
+          setStatusMessage('RX OFFLINE');
+
+          streamerRef.current.setupReceiver(
+            (meta) => setActiveMetadata(meta),
+            (progress) => setTransferProgress(progress),
+            (result, meta, checksumValid) => {
+              setDownloadResult(result);
+              setActiveMetadata(meta);
+              setIsChecksumVerified(checksumValid);
+              setMode('COMPLETED');
+              setStatusMessage('VERIFIED');
+            }
+          );
+        },
+        onStatsUpdate: (stats) => setRtcStats(stats),
+      });
+
+      await peerRef.current.handleOfferAndAnswer(parsed.description);
+      for (const cand of parsed.candidates) {
+        await peerRef.current.addIceCandidate(cand);
+      }
+      refreshLocalOfflineSdpToken();
+    }
+  };
+
+  // 1. TRANSMITTER WORKFLOW (ÉMETTEUR)
+  const startTransmitter = async () => {
+    if (!selectedFile) return;
+
+    try {
+      cleanupEngines();
+      setMode('TRANSMITTING');
+      setRole('initiator');
+      setErrorMessage(null);
+      setStatusMessage('TX PAIRING');
+
+      const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const pakePhrase = generateWormholePhrase(roomId);
+      setCurrentRoomId(roomId);
+      if (typeof window !== 'undefined') {
+        setShareUrl(`${window.location.origin}/?room=${roomId}`);
+      }
+
+      signalingRef.current = new SignalingClient(roomId);
+      modulatorRef.current = new FskModulator();
+
+      peerRef.current = new PeerConnectionManager({
+        onSignalNeeded: async (data) => {
+          refreshLocalOfflineSdpToken();
+          if (data.type === 'offer') {
+            try {
+              signalingRef.current?.listenForAnswer(
+                async (answer) => {
+                  if (autoChirpIntervalRef.current !== null) {
+                    clearInterval(autoChirpIntervalRef.current);
+                    autoChirpIntervalRef.current = null;
+                  }
+                  setStatusMessage('HANDSHAKE');
+                  await peerRef.current?.applyAnswer(answer);
+                },
+                async (candidate) => {
+                  await peerRef.current?.addIceCandidate(candidate);
+                }
+              );
+
+              await signalingRef.current?.registerOffer(
+                data.payload as RTCSessionDescriptionInit,
+                pakePhrase
+              );
+            } catch {
+              // Offline / BroadcastChannel / QR SDP remain active
+            }
+
+            void emitChirpOnce(roomId, bandMode, acousticEngine);
+
+            autoChirpIntervalRef.current = window.setInterval(() => {
+              if (peerRef.current && peerRef.current.getConnectionState() !== 'connected') {
+                void emitChirpOnce(roomId, bandMode, acousticEngine);
+              }
+            }, 6000);
+          } else if (data.type === 'candidate') {
+            await signalingRef.current?.postCandidate(
+              data.payload as RTCIceCandidateInit,
+              'initiator'
+            );
+          }
+        },
+        onConnectionStateChange: (state) => {
+          setConnectionState(state);
+          if (state === 'connected') {
+            if (autoChirpIntervalRef.current !== null) {
+              clearInterval(autoChirpIntervalRef.current);
+              autoChirpIntervalRef.current = null;
+            }
+            setStatusMessage('LINKED');
+          } else if (state === 'failed') {
+            setErrorMessage('La connexion P2P a échoué. Utilisez le mode Hors-Ligne ou réessayez.');
+            setMode('ERROR');
+          }
+        },
+        onDataChannelReady: (channel) => {
+          if (autoChirpIntervalRef.current !== null) {
+            clearInterval(autoChirpIntervalRef.current);
+            autoChirpIntervalRef.current = null;
+          }
+          streamerRef.current = new DataChannelStreamer(channel);
+          setMode('TRANSFERRING');
+          setStatusMessage('TX STREAMING');
+
+          void streamerRef.current.sendFile(
+            selectedFile,
+            (progress) => {
+              setTransferProgress(progress);
+            },
+            (isValid) => {
+              setIsChecksumVerified(isValid);
+              setMode('COMPLETED');
+              setStatusMessage('VERIFIED');
+            },
+            directoryAnalysis
+              ? {
+                  isDirectoryBundle: true,
+                  totalFilesInBundle: directoryAnalysis.totalFiles,
+                }
+              : undefined
+          );
+        },
+        onExtraChannelReady: (extraChannel) => {
+          streamerRef.current?.addCandidateChannel(extraChannel);
+        },
+        onStatsUpdate: (stats) => {
+          setRtcStats(stats);
+        },
+      });
+
+      await peerRef.current.initiateOffer(roomId, transportEngine);
+      refreshLocalOfflineSdpToken();
+    } catch (err) {
+      setErrorMessage((err as Error).message);
+      setMode('ERROR');
+    }
+  };
+
+  // 2. RECEIVER WORKFLOW (RÉCEPTEUR PAR MICROPHONE — SUPPORTE AUSSI LES PAYLOADS HORS-LIGNE `OFL:`)
+  const startReceiver = async () => {
+    try {
+      setMode('RECEIVING');
+      setRole('receiver');
+      setErrorMessage(null);
+      setStatusMessage('RX LISTENING');
+
+      demodulatorRef.current = new FskDemodulator(
+        async (decodedPayload) => {
+          // 1. Check if this is a 100% Air-Gap Offline Direct File Frame (`OFL:<name>:<base64>`)
+          const directFile = decodeDirectAcousticPayload(decodedPayload);
+          if (directFile) {
+            const hashBuf = await crypto.subtle.digest(
+              'SHA-256',
+              directFile.bytes.buffer as ArrayBuffer
+            );
+            const shaHex = Array.from(new Uint8Array(hashBuf))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('');
+            const blob = new Blob([directFile.bytes.buffer as ArrayBuffer], {
+              type: 'application/octet-stream',
+            });
+            setDownloadResult({
+              blob,
+              url: URL.createObjectURL(blob),
+              name: directFile.fileName,
+              size: directFile.bytes.byteLength,
+              usingOpfs: false,
+              computedSha256: shaHex,
+              storageEngine: 'MemoryBlob',
+            });
+            setIsChecksumVerified(true);
+            setMode('COMPLETED');
+            setStatusMessage('REÇU HORS-LIGNE');
+            return;
+          }
+
+          // 2. Otherwise connect to P2P Room Token
+          const cleanToken = extractRoomIdFromPhrase(decodedPayload);
+          if (!isValidRoomToken(cleanToken)) {
+            setStatusMessage('BRUIT REJETÉ');
+            return;
+          }
+          setManualTokenInput(cleanToken);
+          setStatusMessage(`DÉCODÉ #${cleanToken}`);
+          await connectReceiverToRoom(cleanToken, true);
+        },
+        (spectralData, peakFreq, snr, sr, timeDomain) => {
+          setSpectralBuffer(spectralData);
+          if (timeDomain) setTimeDomainBuffer(timeDomain);
+          setDominantFreq(peakFreq);
+          setSnrDb(snr);
+          setActualSampleRate(sr);
+        },
+        (statusText, stateCode) => {
+          setDemodStateText(statusText);
+          setDemodStateCode(stateCode);
+        },
+        bandMode,
+        acousticEngine
       );
 
-      const numPackets = packetization.packets.length;
-      const msPerSymbol = currentConfig.symbolDurationMs;
-      const totalSymbols = numPackets * 88 * 2;
-      const totalSec = currentConfig.preambleDurationMs / 1000 + (totalSymbols * msPerSymbol) / 1000;
+      await demodulatorRef.current.startListening();
+    } catch (err) {
+      setErrorMessage(
+        `Microphone non disponible (${(err as Error).message}). Entrez le code ou jeton hors-ligne ci-dessous.`
+      );
+      setMode('IDLE');
+    }
+  };
 
-      setCurrentPayloadBytes(fileBytes.length);
-      setEstimatedPackets(numPackets);
-      setEstimatedDurationSec(totalSec);
+  const connectReceiverToRoom = async (rawInput: string, isFromAcoustic = false) => {
+    const trimmed = rawInput.trim();
+    if (/^SD[OA]1:/i.test(trimmed)) {
+      await handleApplyRemoteOfflineSdp(trimmed);
+      return;
+    }
 
-      setTotalPackets(numPackets);
-      setReceivedMap(new Map());
-      setHealedIndices(new Set());
+    const cleanId = extractRoomIdFromPhrase(trimmed);
+    if (!isValidRoomToken(cleanId)) {
+      if (!isFromAcoustic) {
+        setErrorMessage(
+          `Code "${rawInput}" invalide (attendu : 6 caractères, phrase Wormhole ou jeton hors-ligne SDO1:...).`
+        );
+      }
+      return;
+    }
 
-      if (loopbackActive && !isListening) {
-        await handleToggleListening();
+    try {
+      if (peerRef.current) {
+        peerRef.current.close();
+        peerRef.current = null;
+      }
+      if (signalingRef.current) {
+        signalingRef.current.close();
+        signalingRef.current = null;
       }
 
-      const modulator = mgr.getModulator();
-      const pcm = modulator.synthesizeTransmission(packetization.packets, {
-        amplitude,
-        includePreamble: true,
+      setCurrentRoomId(cleanId);
+      setManualTokenInput(cleanId);
+      setRole('receiver');
+      setMode('RECEIVING');
+      setErrorMessage(null);
+      setStatusMessage(`JOIN #${cleanId}`);
+      signalingRef.current = new SignalingClient(cleanId);
+
+      peerRef.current = new PeerConnectionManager({
+        onSignalNeeded: async (data) => {
+          refreshLocalOfflineSdpToken();
+          if (data.type === 'answer') {
+            await signalingRef.current?.postAnswer(data.payload as RTCSessionDescriptionInit);
+          } else if (data.type === 'candidate') {
+            await signalingRef.current?.postCandidate(
+              data.payload as RTCIceCandidateInit,
+              'receiver'
+            );
+          }
+        },
+        onConnectionStateChange: (state) => {
+          setConnectionState(state);
+          if (state === 'connected') {
+            setErrorMessage(null);
+            setStatusMessage('LINKED');
+          }
+        },
+        onDataChannelReady: (channel) => {
+          setErrorMessage(null);
+          streamerRef.current = new DataChannelStreamer(channel);
+          setMode('TRANSFERRING');
+          setStatusMessage('RX STREAMING');
+
+          streamerRef.current.setupReceiver(
+            (meta) => {
+              setActiveMetadata(meta);
+            },
+            (progress) => {
+              setTransferProgress(progress);
+            },
+            (result, meta, checksumValid) => {
+              setDownloadResult(result);
+              setActiveMetadata(meta);
+              setIsChecksumVerified(checksumValid);
+              setMode('COMPLETED');
+              setStatusMessage('VERIFIED');
+            },
+            (clipMsg) => {
+              setIncomingClipboards((prev) => [
+                {
+                  id: `dc-${clipMsg.timestamp}`,
+                  senderName: clipMsg.senderName,
+                  payload: clipMsg.payload,
+                  timestamp: clipMsg.timestamp,
+                },
+                ...prev,
+              ]);
+            }
+          );
+        },
+        onExtraChannelReady: (extraChannel) => {
+          streamerRef.current?.addCandidateChannel(extraChannel);
+        },
+        onStatsUpdate: (stats) => {
+          setRtcStats(stats);
+        },
       });
 
-      setIsTransmitting(true);
-      await mgr.playPcm(pcm, () => {
-        setIsTransmitting(false);
-        airdropSynth.setModemActive(false);
-      });
-    },
-    [band, currentConfig, loopbackActive, isListening, selectedPeerId, settings, handleToggleListening, setIsTransmitting]
-  );
+      let connectedViaPeerJs = false;
+      const peerJsPromise = peerRef.current
+        .connectViaPeerJs(cleanId, isFromAcoustic ? 2 : 4)
+        .then((ok) => {
+          if (ok) connectedViaPeerJs = true;
+          return ok;
+        });
 
-  // Run Single-Device Loopback Self-Test
-  const handleRunLoopbackTest = useCallback(async () => {
-    try {
-      setLastSelfTestSuccess(null);
-      await handleSendText('SOUND_DROP_CALIBRATION_BEACON_TEST_OK');
-      setLastSelfTestSuccess(true);
-    } catch {
-      setLastSelfTestSuccess(false);
-    }
-  }, [handleSendText]);
+      const waitTimeoutMs = isFromAcoustic ? 7500 : 15000;
+      const { offer, initiatorCandidates } = await signalingRef.current.waitForRoomOffer(
+        waitTimeoutMs,
+        (attempt) => {
+          if (peerRef.current?.getConnectionState() !== 'connected') {
+            setStatusMessage(`SYNC #${cleanId} (${attempt})`);
+          }
+        }
+      );
 
-  // Acoustic Proximity Chirp Emission (Phone Transmitter)
-  const handleEmitPairingChirp = useCallback(async () => {
-    if (!pairingTxRef.current) {
-      pairingTxRef.current = new AcousticPairingTx();
-    }
-    setPairingStatus('emitting');
-    try {
-      await pairingTxRef.current.emitPairingChirp(1);
-      setTimeout(() => {
-        setPairingStatus('paired');
-      }, 400);
+      if (offer && peerRef.current && peerRef.current.getConnectionState() !== 'connected') {
+        signalingRef.current.listenForInitiatorCandidates(async (cand) => {
+          await peerRef.current?.addIceCandidate(cand);
+        });
+        await peerRef.current.handleOfferAndAnswer(offer);
+        for (const cand of initiatorCandidates) {
+          await peerRef.current.addIceCandidate(cand);
+        }
+        return;
+      }
+
+      await peerJsPromise;
+
+      if (!connectedViaPeerJs && peerRef.current?.getConnectionState() !== 'connected') {
+        if (demodulatorRef.current) {
+          demodulatorRef.current.resetState();
+        }
+        if (isFromAcoustic) {
+          setCurrentRoomId('');
+          setStatusMessage('RX LISTENING');
+        } else {
+          setStatusMessage('EN ATTENTE PAIR');
+          setErrorMessage(
+            `Salon "${cleanId}" introuvable ou hors-ligne. Sans Internet, utilisez le jeton SDO1:... dans l'onglet Hors-Ligne.`
+          );
+        }
+      }
     } catch (err) {
-      console.error('Pairing chirp emission error:', err);
-      setPairingStatus('idle');
+      if (!isFromAcoustic) {
+        setErrorMessage((err as Error).message);
+      }
+      setStatusMessage('RX LISTENING');
+      if (demodulatorRef.current) {
+        demodulatorRef.current.resetState();
+      }
     }
-  }, []);
+  };
 
-  // Automated Proximity Self-Test Loopback (Single-device verify)
-  const handlePairingLoopbackTest = useCallback(async () => {
-    if (!pairingTxRef.current) {
-      pairingTxRef.current = new AcousticPairingTx();
-    }
-    setPairingStatus('emitting');
-    try {
-      await pairingTxRef.current.emitPairingChirp(1);
-      setTimeout(async () => {
-        setPairingStatus('paired');
-        await pairingTxRef.current?.playConfirmationChord();
-      }, 300);
-    } catch (err) {
-      console.error('Pairing loopback error:', err);
-      setPairingStatus('idle');
-    }
-  }, []);
+  const handleManualConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualTokenInput.trim()) return;
+    await connectReceiverToRoom(manualTokenInput.trim(), false);
+  };
+
+  const copyRoomCode = () => {
+    if (!currentRoomId) return;
+    void navigator.clipboard.writeText(currentRoomId);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 1800);
+  };
 
   return (
-    <main className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col justify-between">
-      {/* Top Cyber Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-surface-border px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-cyan-950/90 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.4)] text-cyan-400">
-              <Radio className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-black tracking-widest text-slate-100 uppercase">
-                  Sound Drop
-                </h1>
-                <span className="px-2 py-0.5 text-[10px] font-mono font-semibold rounded bg-cyan-950 border border-cyan-800 text-cyan-400">
-                  AirDrop via Audio
-                </span>
+    <div className="min-h-screen bg-[#0A0A0C] text-[#F4F4F6] flex flex-col items-center justify-between p-4 sm:p-6 relative overflow-x-hidden">
+      {/* Audio-Reactive Constellation Particle Mesh Canvas */}
+      <MeshParticleCanvas
+        isActive={isAcousticEmitting || mode === 'RECEIVING'}
+        snrDb={snrDb}
+        dominantFreq={dominantFreq}
+      />
+
+      {/* Studio Hardware Header with nilbuild/page-mascot & morphicons */}
+      <Header
+        status={statusMessage}
+        mode={mode}
+        snrDb={snrDb}
+        isP2PConnected={connectionState === 'connected'}
+        isAcousticActive={isAcousticEmitting || mode === 'RECEIVING'}
+        onToggleSettings={() => setShowSettings(!showSettings)}
+        isSettingsOpen={showSettings}
+      />
+
+      {/* Main Responsive Studio Console (12-Column Grid on Desktop) */}
+      <main id="main-content" className="w-full max-w-5xl flex flex-col gap-5 my-auto py-3 z-10">
+        {/* Interactive Isometric Hairline Telemetry Strip (lucasmarkes/hairline) */}
+        <section
+          aria-label="Télémétrie isométrique Hairline"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+        >
+          <HairlineFigure
+            variant="VAULT"
+            active={Boolean(selectedFile)}
+            label="SOURCE LOCALE"
+            metric={
+              directoryAnalysis
+                ? `${directoryAnalysis.totalFiles} fichiers`
+                : selectedFile
+                ? `${(selectedFile.size / 1024).toFixed(1)} KB`
+                : '0 fichier (Vide)'
+            }
+          />
+          <HairlineFigure
+            variant="WAVE_MATRIX"
+            active={isAcousticEmitting || mode === 'RECEIVING'}
+            label="MODEM ACOUSTIQUE"
+            metric={snrDb > 0 ? `SNR ${snrDb.toFixed(1)} dB` : `${actualSampleRate / 1000} kHz FSK`}
+          />
+          <HairlineFigure
+            variant="MESH_RADAR"
+            active={connectionState === 'connected' || Boolean(currentRoomId)}
+            label="SALON P2P / HORS-LIGNE"
+            metric={currentRoomId ? `#${currentRoomId}` : 'Prêt (Online/Offline)'}
+          />
+          <HairlineFigure
+            variant="CONVEYOR"
+            active={mode === 'TRANSFERRING' || mode === 'COMPLETED'}
+            label="MODE RÉSEAU"
+            metric="Air-Gap & WebRTC LAN"
+          />
+        </section>
+
+        {/* Collapsible Pro DSP & Transport Settings Drawer */}
+        {showSettings && (
+          <section
+            id="dsp-settings-drawer"
+            aria-label="Configuration DSP et Routage Réseau"
+            className="hardware-chassis rounded-2xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs"
+          >
+            <div className="flex flex-col gap-2">
+              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#D4D4D8]">
+                Bande Fréquentielle Acoustique
+              </span>
+              <div className="grid grid-cols-2 gap-1.5 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/15">
+                {(['AUDIBLE', 'ULTRASONIC'] as const).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    aria-pressed={bandMode === b}
+                    onClick={() => {
+                      setBandMode(b);
+                      demodulatorRef.current?.setBandMode(b);
+                    }}
+                    className={`min-h-[36px] px-2.5 py-1.5 rounded-lg font-mono text-[11px] transition-colors ${
+                      bandMode === b
+                        ? 'bg-[#FF5500] text-white font-bold'
+                        : 'text-[#D4D4D8] hover:text-white'
+                    }`}
+                  >
+                    {b === 'AUDIBLE' ? 'AUDIBLE (1.8-3.6K)' : 'ULTRASONS (17.5-20K)'}
+                  </button>
+                ))}
               </div>
-              <p className="text-[11px] text-slate-400 font-mono">
-                100% Offline Acoustic Data-Over-Sound P2P Transfer
-              </p>
-            </div>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-3 font-mono text-xs">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
-              <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-              <span>Zero Network Required</span>
             </div>
 
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>RS(80,64) FEC + CRC-32</span>
+            <div className="flex flex-col gap-2">
+              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#D4D4D8]">
+                Modulation DSP & ECC
+              </span>
+              <div className="grid grid-cols-3 gap-1 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/15">
+                {(
+                  [
+                    { id: 'GGWAVE', label: 'GGWAVE ECC' },
+                    { id: 'SONICNET', label: 'SONICNET' },
+                    { id: 'QUIET_FSK', label: 'QUIET-FSK' },
+                  ] as const
+                ).map((eng) => (
+                  <button
+                    key={eng.id}
+                    type="button"
+                    aria-pressed={acousticEngine === eng.id}
+                    onClick={() => {
+                      setAcousticEngine(eng.id);
+                      demodulatorRef.current?.setEngine(eng.id);
+                    }}
+                    className={`min-h-[36px] px-2 py-1.5 rounded-lg font-mono text-[11px] transition-colors ${
+                      acousticEngine === eng.id
+                        ? 'bg-[#272732] text-white font-bold border border-white/20'
+                        : 'text-[#D4D4D8] hover:text-white'
+                    }`}
+                  >
+                    {eng.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {settings.encryptionEnabled && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-950/80 border border-purple-800 text-purple-300">
-                <Lock className="w-3.5 h-3.5 text-purple-400" />
-                <span>E2EE PIN</span>
+            <div className="flex flex-col gap-2">
+              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#D4D4D8]">
+                Routage WebRTC Multi-Path (Tous actifs)
+              </span>
+              <div className="grid grid-cols-3 gap-1 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/15">
+                {(
+                  [
+                    { id: 'HYBRID_AUTO', label: 'AUTO MESH' },
+                    { id: 'PEERJS', label: 'PEERJS' },
+                    { id: 'SIMPLE_PEER_EDGE', label: 'DIRECT EDGE' },
+                  ] as const
+                ).map((tr) => (
+                  <button
+                    key={tr.id}
+                    type="button"
+                    aria-pressed={transportEngine === tr.id}
+                    onClick={() => setTransportEngine(tr.id)}
+                    className={`min-h-[36px] px-2 py-1.5 rounded-lg font-mono text-[11px] transition-colors ${
+                      transportEngine === tr.id
+                        ? 'bg-[#272732] text-white font-bold border border-white/20'
+                        : 'text-[#D4D4D8] hover:text-white'
+                    }`}
+                  >
+                    {tr.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* 2-Column Studio Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* LEFT COLUMN (7 Cols): Primary File/Directory Source & P2P Session Controller */}
+          <Card className="lg:col-span-7 flex flex-col gap-5">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <MetalForgeShaderOrb
+                  isActive={isAcousticEmitting || mode === 'RECEIVING' || mode === 'TRANSFERRING'}
+                  snrDb={snrDb}
+                  dominantFreq={dominantFreq || acousticCurrentFreq}
+                  mode={mode}
+                />
+                <div>
+                  <h2 className="text-base font-bold text-[#F4F4F6]">
+                    Contrôleur de Transfert & Système de Fichiers
+                  </h2>
+                  <p className="font-mono text-xs text-[#A1A1AA] mt-0.5">
+                    Partage en ligne ou 100% Hors-Ligne (Air-Gap Sonore & WebRTC LAN)
+                  </p>
+                </div>
+              </div>
+              <DrawablySketchBadge
+                text={mode}
+                accent={mode === 'COMPLETED' ? 'emerald' : mode === 'IDLE' ? 'sky' : 'orange'}
+              />
+            </div>
+
+            {/* Error Banner */}
+            {errorMessage && (
+              <div
+                role="alert"
+                className="flex items-center gap-2.5 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/15 p-3.5 text-xs text-[#FCA5A5]"
+              >
+                <AlertCircle aria-hidden="true" className="h-4 w-4 flex-shrink-0 text-[#EF4444]" />
+                <span>{errorMessage}</span>
               </div>
             )}
 
-            <button
-              onClick={handleToggleListening}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors ${
-                isListening
-                  ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-              }`}
-            >
-              {isListening ? (
-                <>
-                  <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  <span>RX Active</span>
-                </>
-              ) : (
-                <>
-                  <MicOff className="w-3.5 h-3.5 text-slate-500" />
-                  <span>RX Muted</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </header>
+            {/* 1. IDLE MODE: Always-Visible Send / Receive Controls */}
+            {mode === 'IDLE' && (
+              <div className="flex flex-col gap-4">
+                {/* Segmented Pill Switch (Send vs Receive) with MorphIcon */}
+                <div
+                  role="group"
+                  aria-label="Mode de transfert P2P"
+                  className="grid grid-cols-2 rounded-xl bg-[#0A0A0C] p-1.5 border border-white/15"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={activeTab === 'SEND'}
+                    onClick={() => setActiveTab('SEND')}
+                    className={`min-h-[42px] flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                      activeTab === 'SEND'
+                        ? 'bg-[#1E1E26] text-[#F4F4F6] shadow-sm border border-white/15'
+                        : 'text-[#A1A1AA] hover:text-[#F4F4F6]'
+                    }`}
+                  >
+                    <MorphIcon
+                      state={directoryAnalysis ? 'ZIP' : selectedFile ? 'CHECK' : 'SEND'}
+                      size={16}
+                      className="text-[#FF6A1F]"
+                    />
+                    <span>Envoyer (Fichier / Dossier)</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={activeTab === 'RECEIVE'}
+                    onClick={() => setActiveTab('RECEIVE')}
+                    className={`min-h-[42px] flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-semibold transition-all duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                      activeTab === 'RECEIVE'
+                        ? 'bg-[#1E1E26] text-[#F4F4F6] shadow-sm border border-white/15'
+                        : 'text-[#A1A1AA] hover:text-[#F4F4F6]'
+                    }`}
+                  >
+                    <ArrowDownLeft aria-hidden="true" className="h-4 w-4 text-[#10B981]" />
+                    <span>Recevoir un transfert</span>
+                  </button>
+                </div>
 
-      {/* Top Proximity Mode Switcher Bar */}
-      <div className="max-w-7xl mx-auto w-full px-4 md:px-6 pt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-950/80 border border-slate-800 backdrop-blur-md">
-          <button
-            onClick={() => setAppMode('phone-emitter')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              appMode === 'phone-emitter'
-                ? 'bg-cyan-500 text-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.4)]'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            <span>Mode: Phone Emitter</span>
-          </button>
+                {activeTab === 'SEND' ? (
+                  <div className="flex flex-col gap-4">
+                    <FileDropzone
+                      onFileSelected={(file, dirInfo) => {
+                        setSelectedFile(file);
+                        setDirectoryAnalysis(dirInfo || null);
+                      }}
+                      selectedFile={selectedFile}
+                      directoryAnalysis={directoryAnalysis}
+                      onClearFile={() => {
+                        setSelectedFile(null);
+                        setDirectoryAnalysis(null);
+                      }}
+                    />
 
-          <button
-            onClick={() => setAppMode('mac-receiver')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              appMode === 'mac-receiver'
-                ? 'bg-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.4)]'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Laptop className="w-3.5 h-3.5" />
-            <span>Mode: Mac Receiver</span>
-          </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <Button
+                        disabled={!selectedFile}
+                        onClick={() => void startTransmitter()}
+                        size="lg"
+                        variant="primary"
+                        className="w-full"
+                        icon={<ArrowUpRight aria-hidden="true" className="h-4 w-4" />}
+                      >
+                        {directoryAnalysis
+                          ? `Transférer "${directoryAnalysis.rootName}"`
+                          : 'Générer le signal P2P'}
+                      </Button>
 
-          <button
-            onClick={() => setAppMode('studio')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              appMode === 'studio'
-                ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)]'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span>Mode: Studio Radar</span>
-          </button>
+                      <Button
+                        disabled={!selectedFile}
+                        onClick={() => void handleEmitDirectAcousticPayload()}
+                        size="lg"
+                        variant="secondary"
+                        className="w-full"
+                        icon={<Radio aria-hidden="true" className="h-4 w-4 text-[#FF6A1F]" />}
+                      >
+                        Envoi Sonore Hors-Ligne (Air-Gap)
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {/* Direct 6-Char Code, Wormhole Phrase, or Offline SDP Token Input */}
+                    <form onSubmit={handleManualConnect} className="space-y-2">
+                      <label
+                        htmlFor="manual-room-code-input"
+                        className="block font-mono text-xs font-semibold text-[#D4D4D8]"
+                      >
+                        CODE DE SALON, PHRASE WORMHOLE OU JETON HORS-LIGNE (SDO1:...) :
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="manual-room-code-input"
+                          type="text"
+                          value={manualTokenInput}
+                          onChange={(e) => setManualTokenInput(e.target.value)}
+                          placeholder="Ex: A1B2C3, phrase PAKE ou SDO1:..."
+                          className="flex-1 min-h-[44px] rounded-xl bg-[#0A0A0C] border border-white/15 px-4 py-2.5 font-mono text-sm tracking-wider text-[#F4F4F6] placeholder-[#A1A1AA]/60"
+                        />
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          disabled={!manualTokenInput.trim()}
+                          className="px-6"
+                        >
+                          Joindre
+                        </Button>
+                      </div>
+                    </form>
 
-          <button
-            onClick={() => setAppMode('native-desktop')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-              appMode === 'native-desktop'
-                ? 'bg-purple-600 text-white shadow-[0_0_20px_rgba(168,85,247,0.4)]'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            <span>Mode: Native Desktop (Rust/C++)</span>
-          </button>
-        </div>
+                    {/* Active Open Rooms Detected on Local/Edge Registry */}
+                    {activeRoomsList.length > 0 && (
+                      <div className="rounded-xl bg-[#121218] border border-white/15 p-3 space-y-2">
+                        <span className="block font-mono text-[11px] font-semibold text-[#34D399]">
+                          SALONS P2P ACTIFS DÉTECTÉS ({activeRoomsList.length}) :
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {activeRoomsList.map((r) => (
+                            <button
+                              key={r.roomId}
+                              type="button"
+                              onClick={() => void connectReceiverToRoom(r.roomId, false)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-[#1C1C26] hover:bg-[#FF5500] border border-white/15 px-3 py-1.5 font-mono text-xs font-bold text-[#F4F4F6] transition-colors"
+                            >
+                              <Radio aria-hidden="true" className="h-3.5 w-3.5 text-[#10B981]" />
+                              <span>Joindre #{r.roomId}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-        {/* Automated Proximity Self-Test Loopback Button */}
-        <button
-          onClick={handlePairingLoopbackTest}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs text-slate-300 font-mono transition-all shadow-md active:scale-95"
-        >
-          <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Self-Test Loopback Chirp</span>
-        </button>
-      </div>
+                    <div className="relative flex items-center py-1">
+                      <div className="flex-grow border-t border-white/10" />
+                      <span className="mx-3 flex-shrink font-mono text-[11px] uppercase tracking-widest text-[#A1A1AA]">
+                        ou par décodage sonore hors-ligne
+                      </span>
+                      <div className="flex-grow border-t border-white/10" />
+                    </div>
 
-      {/* Main Studio Body */}
-      <div className="max-w-7xl mx-auto w-full p-4 md:p-6 flex flex-col gap-6">
-        {/* VIEW 1: Phone Emitter Proximity Mode */}
-        {appMode === 'phone-emitter' && (
-          <div className="flex flex-col items-center justify-center py-6 gap-6">
-            <div className="text-center max-w-md">
-              <span className="px-3 py-1 rounded-full text-xs font-mono bg-cyan-950/80 border border-cyan-800/80 text-cyan-300">
-                Device A: Transmitter (iPhone)
-              </span>
-              <h2 className="text-2xl font-black text-slate-100 mt-2">
-                Acoustic Bubble Proximity Pair
+                    <Button
+                      onClick={() => void startReceiver()}
+                      variant="secondary"
+                      size="lg"
+                      className="w-full"
+                      icon={<Mic aria-hidden="true" className="h-4 w-4 text-[#FF6A1F]" />}
+                    >
+                      Activer l&apos;écoute acoustique (Microphone Online & Hors-Ligne)
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 2. TRANSMITTING STATE */}
+            {mode === 'TRANSMITTING' && (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl bg-[#0A0A0C] border border-white/15 p-4">
+                  <div className="flex flex-col justify-between space-y-1">
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-[#A1A1AA]">
+                      CLÉ DE SESSION P2P & WORMHOLE
+                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono text-3xl font-bold tracking-[0.18em] text-[#F4F4F6] select-all">
+                        {currentRoomId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={copyRoomCode}
+                        aria-label="Copier le code de session"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-[#E4E4E7] hover:bg-white/20 hover:text-white transition-colors"
+                      >
+                        {copiedCode ? (
+                          <Check aria-hidden="true" className="h-4 w-4 text-[#10B981]" />
+                        ) : (
+                          <Copy aria-hidden="true" className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <div className="font-mono text-xs text-[#34D399] select-all">
+                      Phrase PAKE : {generateWormholePhrase(currentRoomId)}
+                    </div>
+                    <span className="font-mono text-xs text-[#A1A1AA]">
+                      Saisissez ce code, scannez le QR ou activez le micro sur le récepteur
+                    </span>
+                  </div>
+
+                  {shareUrl && (
+                    <div className="flex-shrink-0 rounded-xl bg-white p-2.5 self-center">
+                      <QRCodeSVG value={shareUrl} size={88} level="M" />
+                    </div>
+                  )}
+                </div>
+
+                <AcousticTransmitter
+                  isEmitting={isAcousticEmitting}
+                  roomId={currentRoomId}
+                  currentBit={acousticCurrentBit}
+                  totalBits={acousticTotalBits}
+                  currentFreq={acousticCurrentFreq}
+                  onReemit={() => void emitChirpOnce(currentRoomId, bandMode, acousticEngine)}
+                />
+
+                <PeerCard
+                  roomId={currentRoomId}
+                  role={role}
+                  connectionState={connectionState}
+                  stats={rtcStats}
+                />
+
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={resetToIdle}
+                  icon={<RotateCcw aria-hidden="true" className="h-4 w-4" />}
+                >
+                  Annuler la session
+                </Button>
+              </div>
+            )}
+
+            {/* 3. RECEIVING STATE */}
+            {mode === 'RECEIVING' && (
+              <div className="flex flex-col gap-4">
+                <AcousticReceiver
+                  isListening={!currentRoomId}
+                  snrDb={snrDb}
+                  stateText={demodStateText}
+                  stateCode={demodStateCode}
+                />
+
+                <form onSubmit={handleManualConnect} className="space-y-1.5">
+                  <label
+                    htmlFor="receiving-manual-code-input"
+                    className="block font-mono text-xs text-[#D4D4D8]"
+                  >
+                    SAISIR UN CODE DE SALON, PHRASE WORMHOLE OU JETON SDO1:... :
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="receiving-manual-code-input"
+                      type="text"
+                      value={manualTokenInput}
+                      onChange={(e) => setManualTokenInput(e.target.value)}
+                      placeholder="Ex: A1B2C3 ou SDO1:..."
+                      className="flex-1 min-h-[40px] rounded-xl bg-[#0A0A0C] border border-white/15 px-3.5 py-2 font-mono text-xs tracking-wider text-[#F4F4F6] placeholder-[#A1A1AA]/60"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="primary"
+                      disabled={!manualTokenInput.trim()}
+                    >
+                      Joindre
+                    </Button>
+                  </div>
+                </form>
+
+                <div className="flex gap-2.5">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setCurrentRoomId('');
+                      if (demodulatorRef.current) {
+                        demodulatorRef.current.resetState();
+                      }
+                      void startReceiver();
+                    }}
+                    icon={<RotateCcw aria-hidden="true" className="h-3.5 w-3.5 text-[#FF6A1F]" />}
+                  >
+                    Réécouter
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={resetToIdle}
+                    icon={<RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />}
+                  >
+                    Arrêter l&apos;écoute
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 4. TRANSFERRING STATE */}
+            {mode === 'TRANSFERRING' && (
+              <div className="flex flex-col gap-4">
+                <PeerCard
+                  roomId={currentRoomId}
+                  role={role}
+                  connectionState={connectionState}
+                  stats={rtcStats}
+                />
+
+                <TransferMonitor
+                  progress={transferProgress}
+                  metadata={
+                    activeMetadata ||
+                    (selectedFile
+                      ? {
+                          fileName: selectedFile.name,
+                          fileSize: selectedFile.size,
+                          fileType: selectedFile.type,
+                          totalChunks: Math.ceil(selectedFile.size / (64 * 1024)),
+                          sha256: '',
+                        }
+                      : null)
+                  }
+                  mode={role === 'initiator' ? 'upload' : 'download'}
+                  isChecksumVerified={isChecksumVerified}
+                />
+              </div>
+            )}
+
+            {/* 5. COMPLETED STATE */}
+            {mode === 'COMPLETED' && (
+              <div className="flex flex-col gap-4 py-1">
+                <div
+                  role="status"
+                  className="flex items-center gap-3 rounded-2xl bg-[#10B981]/15 border border-[#10B981]/35 p-4"
+                >
+                  <CheckCircle2
+                    aria-hidden="true"
+                    className="h-6 w-6 text-[#10B981] flex-shrink-0"
+                  />
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#F4F4F6]">
+                      Transfert complété et vérifié
+                    </h3>
+                    <p className="font-mono text-xs text-[#A1A1AA] mt-0.5">
+                      Intégrité SHA-256 certifiée de bout en bout sans perte de paquet
+                    </p>
+                  </div>
+                </div>
+
+                {downloadResult && (
+                  <div className="rounded-2xl bg-[#14141A] border border-white/15 p-4 flex flex-col gap-3.5">
+                    <div className="flex items-center gap-3">
+                      <FileCheck
+                        aria-hidden="true"
+                        className="h-5 w-5 text-[#FF6A1F] flex-shrink-0"
+                      />
+                      <div className="overflow-hidden">
+                        <div className="truncate text-sm font-semibold text-[#F4F4F6]">
+                          {downloadResult.name}
+                        </div>
+                        <div className="font-mono text-xs text-[#A1A1AA]">
+                          {formatByteSize(downloadResult.size)} • Moteur{' '}
+                          {downloadResult.storageEngine} • SHA-256 :{' '}
+                          <code>{downloadResult.computedSha256.slice(0, 16)}…</code>
+                        </div>
+                      </div>
+                    </div>
+
+                    {downloadResult.size > 0 &&
+                      /\.(jpe?g|png|webp|gif|svg|bmp)$/i.test(downloadResult.name) && (
+                        <div className="rounded-xl overflow-hidden border border-white/10 bg-[#0A0A0C] flex items-center justify-center max-h-60">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={downloadResult.url}
+                            alt={downloadResult.name}
+                            className="max-h-56 w-auto object-contain"
+                          />
+                        </div>
+                      )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => void saveWithBrowserFsAccess(downloadResult)}
+                        icon={<Download aria-hidden="true" className="h-4 w-4" />}
+                      >
+                        Enregistrer sur le disque
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => void saveWithStreamSaver(downloadResult)}
+                        icon={<HardDrive aria-hidden="true" className="h-4 w-4" />}
+                      >
+                        Téléchargement direct
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={resetToIdle}
+                  icon={<RotateCcw aria-hidden="true" className="h-4 w-4" />}
+                >
+                  Nouveau transfert
+                </Button>
+              </div>
+            )}
+
+            {/* 6. ERROR STATE */}
+            {mode === 'ERROR' && (
+              <div className="flex flex-col gap-3">
+                <Button
+                  variant="primary"
+                  onClick={resetToIdle}
+                  icon={<RotateCcw aria-hidden="true" className="h-4 w-4" />}
+                >
+                  Réinitialiser la session
+                </Button>
+              </div>
+            )}
+          </Card>
+
+          {/* RIGHT COLUMN (5 Cols): Live 60fps OLED Spectrum Analyzer & Open-Source Workbench */}
+          <Card className="lg:col-span-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <h2 className="text-sm font-bold text-[#F4F4F6]">
+                Analyseur Spectral OLED & Protocoles P2P
               </h2>
-              <p className="text-xs text-slate-400 font-mono mt-1">
-                Tap the liquid bubble to synthesize a dual-tone acoustic chirp (1800-2400 Hz sweep + 2800 Hz beacon) to connect to Mac/PC.
-              </p>
+              <span className="font-mono text-[11px] text-[#34D399] font-semibold">
+                ONLINE & HORS-LIGNE
+              </span>
             </div>
 
-            <AcousticBubbleButton
-              status={pairingStatus}
-              onEmit={handleEmitPairingChirp}
-              pairedDeviceName={pairedDeviceName}
-              queuedPayload={queuedPayload}
-              onSendQueuedPayload={() => {
-                handleSendText('Acoustic Drop Payload from iPhone!');
-                setQueuedPayload(null);
-              }}
+            {/* Recessed OLED Spectrum Monitor */}
+            <SpectrumVisualizer
+              isActive={isAcousticEmitting || mode === 'RECEIVING'}
+              spectralData={spectralBuffer}
+              timeDomainData={timeDomainBuffer}
+              dominantFreq={dominantFreq || acousticCurrentFreq}
+              snrDb={snrDb}
+              sampleRate={actualSampleRate}
+              bandMode={bandMode}
+              statusLabel={statusMessage}
             />
 
-            {/* Live Spectrogram Preview for Emitter */}
-            <div className="w-full max-w-2xl mt-4">
-              <SpectrogramDrawer
-                analyserNode={analyserNode}
-                config={currentConfig}
-                activeFrequency={telemetry?.activeFrequency}
-                isTransmitting={isTransmitting}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 2: Mac Receiver Radar Mode */}
-        {appMode === 'mac-receiver' && (
-          <div className="py-4">
-            <MacDropReceiver
-              onPairingRecognized={(sessionId) => {
-                setPairingStatus('paired');
-                setPairedDeviceName(`iPhone 16 Pro (Node #${sessionId})`);
-                addPeer({
-                  id: `peer-phone-${sessionId}`,
-                  name: `iPhone 16 Pro (#${sessionId})`,
-                  deviceType: 'iphone',
-                  x: -110,
-                  y: -60,
-                  vx: 0,
-                  vy: 0,
-                  radius: 46,
-                  color: '#06B6D4',
-                  distanceRssi: 92,
-                  lastSeen: Date.now(),
-                  status: 'idle',
-                  progress: 0,
-                });
+            {/* Multi-Protocol Open-Source Control Hub */}
+            <MultiProtocolPanel
+              selectedFile={selectedFile}
+              activeProtocol={activeProtocol}
+              onProtocolChange={(p) => setActiveProtocol(p)}
+              currentRoomId={currentRoomId}
+              liveSnrDb={snrDb}
+              liveRttMs={rtcStats?.roundTripTimeMs}
+              offlineSdpToken={offlineSdpToken}
+              onApplyRemoteOfflineSdp={(tok) => void handleApplyRemoteOfflineSdp(tok)}
+              onEmitDirectAcousticPayload={() => void handleEmitDirectAcousticPayload()}
+              onJoinRoomByCode={(code) => {
+                setActiveTab('RECEIVE');
+                setManualTokenInput(code);
+                void connectReceiverToRoom(code, false);
               }}
-              lastReceivedDrop={receivedDrop}
-              onClearDrop={() => setReceivedDrop(null)}
+              onStartTransmitter={() => void startTransmitter()}
+              onSendDataChannelClipboard={(sender, text) =>
+                streamerRef.current ? streamerRef.current.sendClipboardMessage(sender, text) : false
+              }
+              incomingDataChannelClipboards={incomingClipboards}
             />
-          </div>
-        )}
-
-        {/* VIEW 4: Next-Gen Native Desktop Shell (Rust, C++, Go, Python, R, Ruby) */}
-        {appMode === 'native-desktop' && (
-          <div className="py-2">
-            <SoundDropNativeApp />
-          </div>
-        )}
-
-        {/* VIEW 3: Full AirDrop Studio Radar & Diagnostic Mode */}
-        {appMode === 'studio' && (
-          <>
-            {/* Apple AirDrop Physics Bubble Radar */}
-            <AirDropBubbleRadar
-              peers={peers}
-              selectedPeerId={selectedPeerId}
-              onSelectPeer={(p) => setSelectedPeerId(p.id)}
-              isTransmitting={isTransmitting}
-              isListening={isListening}
-              currentBand={band}
-              onBandChange={handleBandChange}
-              telemetry={telemetry}
-              onDropPayloadOnPeer={(p) => {
-                // Trigger drop if payload ready
-              }}
-            />
-
-            {/* Middle Section: Sonar Drop Zone & Waterfall Spectrogram */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-6 flex flex-col">
-                <SonarDropZone
-                  demodState={demodState}
-                  isTransmitting={isTransmitting}
-                  isListening={isListening}
-                  onSendText={handleSendText}
-                  onSendFile={handleSendFile}
-                  onSendFolderFiles={(files) => {
-                    if (files.length > 0) handleSendFile(files[0]);
-                  }}
-                  estimatedPackets={estimatedPackets}
-                  estimatedDurationSec={estimatedDurationSec}
-                  currentPayloadBytes={currentPayloadBytes}
-                />
-              </div>
-
-              <div className="lg:col-span-6 flex flex-col">
-                <SpectrogramDrawer
-                  analyserNode={analyserNode}
-                  config={currentConfig}
-                  activeFrequency={telemetry?.activeFrequency}
-                  isTransmitting={isTransmitting}
-                />
-              </div>
-            </div>
-
-            {/* Goertzel Constellation Bars & Packet Matrix Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-6 flex flex-col">
-                <GoertzelSymbolBars telemetry={telemetry} config={currentConfig} />
-              </div>
-
-              <div className="lg:col-span-6 flex flex-col">
-                <PacketMatrixGrid
-                  totalPackets={totalPackets}
-                  receivedMap={receivedMap}
-                  healedIndices={healedIndices}
-                />
-              </div>
-            </div>
-
-            {/* Bottom Split: Acoustic Tuning Controls & Single-Device Loopback Test */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-7 flex flex-col">
-                <AcousticSettings
-                  currentBand={band}
-                  onBandChange={handleBandChange}
-                  txMode={txMode}
-                  onTxModeChange={setTxMode}
-                  loopbackActive={loopbackActive}
-                  onToggleLoopback={handleToggleLoopback}
-                  isListening={isListening}
-                  onToggleListening={handleToggleListening}
-                />
-              </div>
-
-              <div className="lg:col-span-5 flex flex-col">
-                <LoopbackTestPanel
-                  onRunTest={handleRunLoopbackTest}
-                  isTransmitting={isTransmitting}
-                  isListening={isListening}
-                  loopbackActive={loopbackActive}
-                  onToggleLoopback={handleToggleLoopback}
-                  lastTestSuccess={lastSelfTestSuccess}
-                />
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* iOS & Mobile AudioContext Unlock Overlay Gate */}
-      <AudioUnlockOverlay
-        isUnlocked={isAudioUnlocked}
-        onUnlock={async () => {
-          const mgr = audioManagerRef.current || AudioManager.getInstance();
-          audioManagerRef.current = mgr;
-          await mgr.ensureAudioContext();
-          setAnalyserNode(mgr.getAnalyser());
-          try {
-            await handleToggleListening();
-          } finally {
-            setIsAudioUnlocked(true);
-          }
-        }}
-      />
-
-      {/* Incoming AirDrop Drawer Modal with BlurHash Reveal */}
-      <IncomingDropSheet drop={receivedDrop} onClose={() => setReceivedDrop(null)} />
-
-      {/* Footer */}
-      <footer className="bg-surface/80 border-t border-surface-border px-6 py-4 mt-6">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 font-mono gap-2">
-          <div className="flex items-center gap-2">
-            <span>SOUND DROP v2.0.0</span>
-            <span>•</span>
-            <span>Acoustic AirDrop + Physics Bubble Radar</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span>48,000 Hz Sampling</span>
-            <span>•</span>
-            <span>Zero Network Hardware</span>
-            <span>•</span>
-            <span>PWA Offline-First</span>
-          </div>
+          </Card>
         </div>
-      </footer>
-    </main>
+      </main>
+
+      <Footer />
+    </div>
   );
 }

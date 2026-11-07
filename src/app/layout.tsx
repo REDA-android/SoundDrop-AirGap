@@ -1,29 +1,33 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import '../../sound-drop-native/desktop-ui/src/styles/aesthetics.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: 'Sound Drop | Offline Acoustic & Ultrasonic AirDrop',
+  title: 'SoundDrop Studio — Transfert P2P Acoustique, WebRTC & Multi-Protocoles Open-Source',
   description:
-    '100% Offline peer-to-peer acoustic file and text transfer over physical sound waves with zero network hardware.',
+    'Station de transfert P2P zéro-connaissance combinant modulation acoustique ultrasonique/audible (ggwave ECC, SonicNet, Quiet-FSK), WebRTC DataChannels, OpenDrop, LocalSend, Syncthing, Magic-Wormhole et WebTorrent.',
   manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'Sound Drop',
-  },
   icons: {
     icon: '/icon-192.png',
-    apple: '/icon-512.png',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#06B6D4',
+  themeColor: '#0A0A0C',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
 };
 
 export default function RootLayout({
@@ -32,12 +36,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-      </head>
-      <body className="min-h-screen bg-background text-slate-100 flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+    <html lang="fr" className={`${inter.variable} ${jetbrainsMono.variable} dark`}>
+      <body className="font-sans antialiased bg-[#0A0A0C] text-[#F4F4F6] selection:bg-[#FF5500] selection:text-white">
+        <a
+          href="#main-content"
+          className="visually-hidden focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:rounded-xl focus:bg-[#FF5500] focus:text-white focus:font-semibold focus:shadow-lg"
+        >
+          Aller au contenu principal
+        </a>
         {children}
       </body>
     </html>
