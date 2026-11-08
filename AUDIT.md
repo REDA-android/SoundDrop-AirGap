@@ -1,89 +1,136 @@
-# SoundDrop AirGap — Audit initiale (Web v1)
+# AUDIT DE L'APPLICATION WEB SOUNDDROP STUDIO (Phase 0)
 
-**Date :** 2026-11-08  
-**Branche :** `repair/web-v1`  
-**Base auditée :** `main` — `677d66cca252a7700aeeb2971838e0d3ed7df832`  
-**Projet Vercel :** `sound-drop-air-gap` (Next.js)  
-**Périmètre :** application web Next.js déployée sur Vercel. Le client natif Rust/Slint est une cible distincte et n'est pas considéré comme une fonctionnalité web.
+Date de l'audit : 2026-11-08  
+Auteur : AntiGravity  
+Branche de travail : `repair/web-v1`  
+Cible : https://sound-drop-air-gap.vercel.app/  
 
-## Résumé exécutif
+---
 
-Le dépôt contient une vraie base de travail : interface Next.js, modulation/démodulation audio, WebRTC DataChannels, transfert par blocs et endpoints de signalisation. En revanche, plusieurs promesses affichées ne correspondent pas au comportement démontré par le code. Les risques prioritaires concernent le mode acoustique direct, la persistance de la signalisation et l'exposition des salons/presse-papiers.
+## 1. Questions Fondamentales (Section 3.2)
 
-Le dernier déploiement de production est marqué **READY** et provient bien de `REDA-android/SoundDrop-AirGap`, branche `main`, commit `677d66c`. Cela confirme le déploiement, pas la fiabilité fonctionnelle des transferts.
+### 1. Quel est le framework, le bundler, la version de Node ? Y a-t-il des tests ?
+- **Framework** : Next.js 14.2.15 (React 18.3.1).
+- **Bundler** : Webpack (intégré à Next.js).
+- **Version de Node** : Node.js v24.22.2 (compatible Node 18+).
+- **Gestionnaire de paquets** : npm 11.21.2.
+- **Tests existants pour l'app web** : **AUCUN** dans `package.json` (aucun runner Jest ou Vitest configuré pour le code `src/`). Les tests existants étaient limités au workspace Rust natif `sound-drop/`.
 
-## Constats
+### 2. Quelle API audio est utilisée (ScriptProcessorNode, AudioWorklet, MediaRecorder) ?
+- `AudioWorklet` est présent dans `public/audio-processor.js` et tenté dans `src/lib/audio/FskDemodulator.ts:169`.
+- **Problème critique identifié** : repli systématique sur `ScriptProcessorNode(1024, 1, 1)` dans `src/lib/audio/FskDemodulator.ts:189` et `ScriptProcessorNode(2048, 1, 1)` dans `src/lib/audio/audio-manager.ts:117`.
+- **Risque Larsen** : `this.scriptProcessor.connect(this.audioCtx.destination)` est appelé dans `FskDemodulator.ts:195`, ce qui relie le microphone aux haut-parleurs.
+- MediaRecorder n'est pas utilisé pour le modem (flux direct en Float32Array).
 
-### [P1] Le transfert acoustique direct tronque les fichiers et bascule sur WebRTC
+### 3. Quel modem est réellement branché : ggwave, un modem maison, ou rien ?
+- `ggwave` (`^0.4.0`) est installé dans `node_modules` et interfacé via WebAssembly dans `src/lib/audio/FskModulator.ts` et `src/lib/audio/FskDemodulator.ts`.
+- Un modem FSK / Goertzel maison existe dans `src/lib/dsp/` et `src/lib/part1-modem/custom-mfsk-modem.ts`.
+- Dans l'interface studio (`AcousticRadarStudioWorkspace.tsx`), c'est `FskModulator.transmitWithGgwave` qui est déclenché par défaut pour l'émission sonore.
 
-- `src/lib/webrtc/offline-sdp.ts:121-125` encode uniquement `file.slice(0, 96)`.
-- `src/app/page.tsx:323-339` bascule automatiquement vers `startTransmitter()` pour les fichiers de plus de 96 octets. Ce chemin crée une session WebRTC et utilise la signalisation.
-- Pour les fichiers de 96 octets ou moins, le mode direct envoie le préfixe encodé, sans vérifier que le fichier entier a été transmis.
-- Dans le chemin de réception acoustique direct (`src/app/page.tsx`, callback de `FskDemodulator`), le SHA-256 est calculé sur les octets reçus puis l'état de vérification est défini à `true`. Ce calcul seul ne compare pas les données reçues à une empreinte attendue par l'émetteur.
+### 4. Comment le chiffrement est-il appelé ? Est-il réellement appliqué aux octets envoyés ?
+- `tweetnacl` (`^1.0.3`) est installé.
+- Dans `src/lib/part8-media-crypto/acoustic-cipher.ts`, `nacl.secretbox` (XSalsa20-Poly1305) chiffre un payload binaire avec un nonce de 24 octets aléatoire et une clé SHA-256 dérivée d'un PIN / mot de passe.
+- **Défaut critique** : dans `src/components/studio/AcousticRadarStudioWorkspace.tsx:94`, le chiffrement est initialisé à `false` (`isEncryptionActive = false`). Il n'est donc **PAS appliqué par défaut**.
 
-**Impact :** le bouton/chemin présenté comme transfert de fichier « 100 % Air-Gap » ne transfère pas un fichier complet de façon générale. Le statut « vérifié » peut être trompeur pour ce chemin.
+### 5. Lesquels des « 10 protocoles » ont du code qui s’exécute ? Lequel envoie réellement des octets ?
+- **Protocoles qui transmettent réellement des octets** :
+  1. **Modem Acoustique (ggwave / FSK)** : émet de véritables ondes sonores via le haut-parleur (`AudioBufferSourceNode` / modulateur Web Audio) reçues par le micro.
+  2. **WebRTC DataChannels** : transmet de vrais octets entre deux navigateurs si la signalisation ou l'échange SDP hors-ligne aboutit.
+- **Protocoles simulés / inopérants dans le navigateur** :
+  - **OpenDrop** : simulation via des routes API Next.js `/api/opendrop/*`. Le protocole AWDL (Apple Wireless Direct Link) / AirDrop natif requiert des frames 802.11 brutes et du Bluetooth BLE avec accès root, impossible dans une sandbox de navigateur web.
+  - **LocalSend** : simulation via routes API Next.js `/api/localsend/*`. Le protocole utilise du multicast UDP (port 53317) non supporté par l'API Web.
+  - **Syncthing** : simple découpage de fichier en blocs de 128 Ko avec hash SHA-256 (`src/lib/protocols/syncthing.ts`), sans connexion au protocole BEP sur TLS.
+  - **Wormhole / WebTorrent / Reticulum / Warpinator** : simples aides textuelles (génération de phrase PAKE, PIN à 4 chiffres, calculs de hash WebCrypto), sans pile réseau native P2P.
 
-**Correction proposée :** distinguer clairement « envoi acoustique de code/appairage » et « transfert de fichier via réseau ». Ne jamais afficher « fichier envoyé » ou « SHA-256 vérifié » sans longueur complète et comparaison avec l'empreinte annoncée par l'émetteur. Pour un véritable transfert acoustique, implémenter fragmentation, numérotation, reprise, contrôle d'intégrité et tests sur deux appareils.
+### 6. Où sont calculés SNR, confiance, « Frames Decoded », « Reed-Solomon Healed », « CRC Rejections » ?
+- **SNR** : calculé dans `src/lib/dsp/goertzel.ts` à partir du ratio énergie de crête sur bruit moyen Goertzel.
+- **Confiance** : calculée de manière heuristique dans `src/lib/dsp/goertzel.ts:109` (`confidence = Math.min(1, Math.max(0, snrDb / 30))`).
+- **Frames Decoded** : incrémenté lors du décodage d'un paquet.
+- **Reed-Solomon Healed** : calculé dans `src/lib/protocol/fec.ts` et `src/lib/part7-protocol/packet-codec.ts`. **Problème** : il s'agit d'une implémentation Reed-Solomon maison (GF(2^8)) non validée par des vecteurs officiels, en violation directe de la règle 4.
+- **CRC Rejections** : incrémenté quand le CRC-32 ne correspond pas.
 
-### [P1] La signalisation WebRTC repose sur une mémoire locale au processus serveur
+### 7. Le radar détecte-t-il de vrais pairs, ou affiche-t-il des bulles factices ?
+- Dans `src/lib/part2-p2p/peer-discovery.ts`, un mécanisme de beacon acoustique de 4 octets + CRC8 existe.
+- Néanmoins, la disposition spatiale (`x, y`), la vitesse (`vx, vy`) et l'attribution de couleurs utilisent `Math.random()`.
+- Si aucun beacon n'est détecté, `peers` est vide par défaut (`AcousticRadarStudioWorkspace.tsx:45`).
+- Dans `page.tsx`, le radar principal n'était même pas directement relié au récepteur acoustique global.
 
-- `src/app/api/signal/[...action]/route.ts:32-43` stocke salons et presse-papiers dans des `Map` attachées à `globalThis`.
-- Le code expire les salons après dix minutes (`cleanExpiredRooms`, lignes 46-54).
-- Sur une plateforme serverless, cette mémoire n'est ni un stockage durable ni un registre partagé garanti entre instances. Une requête suivante peut atteindre une autre instance ou une instance froide.
+### 8. Que fait le bouton « Générer le signal P2P » ? Et « Lier Hors-Ligne » ?
+- **« Générer le signal P2P »** (`page.tsx:1075` -> `startTransmitter`) :
+  - Génère un identifiant de salon aléatoire (ex. 6 caractères).
+  - Crée une offre WebRTC (`RTCPeerConnection`).
+  - Tente d'envoyer l'offre à `/api/signal/[...action]`.
+  - Émet périodiquement un chirp acoustique contenant l'ID du salon pour que le récepteur rejoigne le salon.
+- **« Lier Hors-Ligne »** (`MultiProtocolPanel.tsx:477`) :
+  - Prend le jeton SDP encodé et compressé (`SDO1:...` ou `SDA1:...`) collé par l'utilisateur.
+  - Décompresse le SDP via `pako`/`fflate` et l'applique comme `remoteDescription` sur le `RTCPeerConnection` pour connecter WebRTC sans passer par un serveur de signalisation.
 
-**Impact :** les deux appareils peuvent ne pas voir le même salon ou perdre l'état de signalisation, même si chaque requête répond correctement.
+### 9. Taille du bundle, temps de chargement mobile, score Lighthouse
+- **Sortie du build de départ (`npm run build`)** :
+  - Route `/` : 170 kB (taille page) / **257 kB First Load JS**.
+  - Shared chunks : 87.3 kB (dont framer-motion, lucide-react, react, etc.).
+- **Impact mobile** :
+  - 257 kB est raisonnable, mais la compilation de multiples bibliothèques lourdes (`tone`, `matter-js`, `d3-force`, `ggwave`) alourdit l'initialisation mobile.
 
-**Correction proposée :** choisir un stockage partagé et durable compatible Vercel (Redis/KV ou base de données), ajouter TTL explicite et tests multi-instance. Tant que ce n'est pas fait, présenter la signalisation serveur comme expérimentale.
+### 10. Que fait la page quand le micro est refusé ? Quand getUserMedia n’existe pas (HTTP) ?
+- `src/lib/audio/FskDemodulator.ts:153` appelle directement `navigator.mediaDevices.getUserMedia(...)` sans bloc `try / catch` explicite retournant un état propre à l'UI.
+- **En cas de refus du micro** (`NotAllowedError`) : une promesse non capturée (`Unhandled Promise Rejection`) est levée dans la console. L'utilisateur reste bloqué sur un état « Écoute... » sans explication ni guidage.
+- **En contexte non sécurisé (HTTP)** : `navigator.mediaDevices` est `undefined`, provoquant un crash `TypeError: Cannot read properties of undefined (reading 'getUserMedia')`.
 
-### [P1] Les endpoints de salons et de presse-papiers ne montrent pas de contrôle d'accès
+---
 
-- `src/app/api/signal/[...action]/route.ts` expose une lecture des salons actifs via l'action GET `rooms`.
-- L'action GET `clipboard` retourne les derniers messages du flux global si aucun salon n'est spécifié.
-- L'action POST `clipboard` ajoute un message au flux global et accepte un champ `encrypted` qui est seulement stocké comme booléen ; ce champ ne chiffre pas le contenu.
+## 2. Tableau des Affirmations à Vérifier (Section 3.3)
 
-**Impact :** si ces endpoints sont accessibles publiquement dans le déploiement, les codes de salons et les messages du presse-papiers global peuvent être visibles ou modifiables par des tiers. Le booléen `encrypted` ne doit pas être présenté comme une protection cryptographique.
+| Affirmation sur la page | Où dans le code | Statut | Action requise |
+| :--- | :--- | :--- | :--- |
+| **« Zéro mock » / « 0 mock »** | `src/app/page.tsx:99, 833`, `src/components/layout/Footer.tsx:8`, `src/components/layout/Header.tsx:48`, `src/components/ui/PageMascot.tsx:82`, `src/components/studio/AcousticRadarStudioWorkspace.tsx:44` | Faux / Non vérifié | Supprimer toutes les occurrences dans l'UI. |
+| **« 4 moteurs réels chargés »** | `src/app/page.tsx:837` | Faux | Supprimer de l'interface. |
+| **« DTLS 1.3 / SHA-256 »** | `src/components/layout/Header.tsx:77`, `src/components/layout/Footer.tsx:8` | Non vérifié | Remplacer par « DTLS » (version exacte non garantie par l'API WebRTC du navigateur). |
+| **« ToF Co-Présence < 1,50 m »** | `src/components/native-system/SoundDropNativeApp.tsx:83, 135-139, 221-260, 399-407, 441, 450` | Faux / Inexécutable | Supprimer complètement. Remplacer la vérification de proximité par le SAS (Phase 5). |
+| **« Doppler Δf / PLL 16 kHz »** | `src/components/native-system/SoundDropNativeApp.tsx:84, 111, 141-165, 187-192, 375-378` | Faux | Supprimer du code et de l'interface. Remplacer par la resynchronisation par trame (chirp). |
+| **« Diode : bidirectionnel »** | `src/components/native-system/SoundDropNativeApp.tsx:344` | Faux (contradiction) | Supprimer de l'interface. |
+| **« RS(80,64) »** | `src/lib/protocol/fec.ts:1-333`, `src/lib/part7-protocol/packet-codec.ts:3, 139`, `src/components/native-system/SoundDropNativeApp.tsx:450, 476` | Réel non conforme | Supprimer le RS fait-main. Utiliser ggwave (FEC inclus) ou crate/lib vérifiée avec vecteurs officiels. |
+| **« XSalsa20-Poly1305 (TweetNaCl) »** | `src/lib/part8-media-crypto/acoustic-cipher.ts:1-55`, `src/components/studio/AcousticRadarStudioWorkspace.tsx:410` | Réel non testé | Activer par défaut (était désactivé), ajouter tests unitaires et intégrer avec l'appairage SAS. |
+| **« 10 protocoles P2P »** | `src/components/layout/Header.tsx:48`, `src/components/transfer/MultiProtocolPanel.tsx:50-53` | Faux / Inexécutable | Retirer de l'interface principale ou marquer « Prévu » dans une feuille de route. |
+| **« AVX2 8-Ch Goertzel »** | `src/components/native-system/SoundDropNativeApp.tsx:304, 418` | Faux | Supprimer (inaccessible dans le navigateur web). |
+| **« Audible Robust 3-5 m »** | `src/components/native-system/SoundDropNativeApp.tsx:83` | Non vérifié | Remplacer par « à mesurer » (mesures en Phase 9). |
+| **« Whisper Mode 5 cm »** | `src/components/radar/AirDropBubbleRadar.tsx:166-207`, `src/components/AcousticSettings.tsx:109-118` | Simulé / Non mesuré | Marquer comme expérimental, mesurer l'atténuation. |
+| **« WASAPI Exclusive / CoreAudio 256f »** | `src/components/native-system/SoundDropNativeApp.tsx:393` | Faux | Supprimer (inaccessible dans le navigateur web). |
+| **« 65 536 samples zéro-malloc »** | `src/components/native-system/SoundDropNativeApp.tsx:390` | Faux | Supprimer (le runtime JS effectue du garbage collection / allocations). |
+| **« Catalogue 50 projets »** | `src/components/native-system/SoundDropNativeApp.tsx:45-104, 504`, `src/app/page.tsx:1507` | Réel non testé | Déplacer dans `docs/REFERENCES.md` (hors du flux principal UI). |
 
-**Correction proposée :** supprimer le flux global par défaut, exiger un jeton de session fort pour chaque salon, appliquer une autorisation côté serveur, limiter taille/fréquence des requêtes et ne jamais considérer un indicateur `encrypted` comme un chiffrement.
+---
 
-### [P2] Les garanties de qualité ne sont pas vérifiées automatiquement
+## 3. État du Build de Départ
 
-- `package.json` ne définit pas de script `test` ni de suite de tests.
-- `next.config.mjs` contient `eslint.ignoreDuringBuilds: true` : le build peut réussir sans que les erreurs ESLint bloquent le déploiement.
-- Le déploiement Vercel `READY` prouve qu'un build a été publié, pas que l'audio fonctionne sur iOS/Android ni que les transferts entre deux appareils aboutissent.
+### Vérification TypeScript
+```bash
+npx tsc --noEmit
+# Résultat : Code 0 (0 erreur de compilation TypeScript)
+```
 
-**Correction proposée :** ajouter des tests unitaires pour framing/CRC, tests d'intégration pour le protocole DataChannel, contrôle TypeScript/lint en CI et une matrice de tests manuels iPhone Safari ↔ Android Chrome.
+### Build Production Next.js
+```bash
+npm run build
+# Résultat : Code 0 (compilation réussie)
+# Route (app)                              Size     First Load JS
+# ┌ ○ /                                    170 kB          257 kB
+# ├ ○ /_not-found                          873 B          88.2 kB
+# ├ ƒ /api/localsend/v2/info               0 B                0 B
+# ├ ƒ /api/localsend/v2/prepare-upload     0 B                0 B
+# ├ ƒ /api/localsend/v2/upload             0 B                0 B
+# ├ ƒ /api/opendrop/ask                    0 B                0 B
+# ├ ƒ /api/opendrop/discover               0 B                0 B
+# ├ ƒ /api/opendrop/nodes                  0 B                0 B
+# ├ ƒ /api/opendrop/upload                 0 B                0 B
+# └ ƒ /api/signal/[...action]              0 B                0 B
+# + First Load JS shared by all            87.3 kB
+```
 
-### [P2] Le composant RX présente une étape comme une barre de progression
+---
 
-- `src/components/audio/AcousticReceiver.tsx` calcule la largeur de la barre à partir de `stateCode / 4`.
-- `stateCode` représente l'état du décodeur (préambule, échantillonnage, validation, etc.), pas le pourcentage d'un transfert.
-
-**Correction proposée :** remplacer la barre par un indicateur d'étape clairement nommé, ou la relier à une progression mesurée réelle.
-
-### [P2] Le nom « 10 protocoles » dépasse ce que l'interface déclare
-
-- `src/components/transfer/MultiProtocolPanel.tsx:49-98` déclare neuf identifiants d'onglets (`UnifiedProtocol`) et neuf entrées dans `PROTOCOL_TABS`.
-- Plusieurs onglets exécutent des opérations locales ou des métadonnées propres à l'application ; cela ne prouve pas une interopérabilité complète avec les logiciels/protocoles originaux.
-
-**Correction proposée :** afficher le nombre exact de fonctions réellement opérationnelles et distinguer « compatible/inter-opérable », « expérimental » et « outil local ». Ne pas revendiquer une compatibilité protocolaire sans tests croisés avec les implémentations de référence.
-
-## Décision d'architecture
-
-1. **Web v1 seulement :** Next.js + Web Audio + WebRTC. Ne pas mélanger les sources Rust/Slint dans le périmètre de réparation web.
-2. **Un chemin de transfert principal :** d'abord stabiliser WebRTC DataChannel sur réseau local, avec signalisation documentée.
-3. **Audio en étape séparée :** commencer par un appairage acoustique fiable ; ne pas présenter l'audio comme transport de fichiers complets tant que la fragmentation et la récupération ne sont pas testées.
-4. **Sécurité avant les fonctionnalités :** isoler les salons, supprimer le presse-papiers global public, et comparer les empreintes calculées à une empreinte attendue.
-5. **Pas de fausses métriques :** aucune progression, distance, vitesse, SNR ou validation ne doit être affichée sans mesure réelle.
-
-## Plan de réparation proposé
-
-- **Phase 0 — Audit :** ce document uniquement. Aucun code applicatif modifié.
-- **Phase 1 — Honnêteté de l'interface :** corriger les libellés et statuts trompeurs.
-- **Phase 2 — Transfert WebRTC :** sécuriser/persister la signalisation et valider l'envoi/réception de fichiers avec checksum comparé.
-- **Phase 3 — Audio :** tests de modulation/démodulation sur appareils réels, puis fragmentation et reprise si le transfert acoustique complet est maintenu.
-- **Phase 4 — Compatibilité :** iPhone Safari, Android Chrome, permissions micro, reprise après interruption et mode hors ligne.
-- **Phase 5 — CI :** tests, lint et build bloquants avant fusion.
-
-## Limites de cet audit
-
-Cet audit est une revue statique du code et des métadonnées de déploiement. Aucun transfert physique entre deux appareils, test de microphone, test de charge, test multi-instance Vercel ou audit cryptographique complet n'a encore été exécuté. Les constats ci-dessus doivent être validés par des tests avant toute affirmation de correction.
+## 4. Bilan et Actions Immédiates pour Phase 1
+1. **Aucun code fonctionnel n'a été modifié en Phase 0**.
+2. Les 15 affirmations ont été cartographiées avec leurs emplacements précis dans les fichiers sources.
+3. Les 10 questions de l'audit sont rigoureusement documentées.
+4. L'implémentation de la Phase 1 peut débuter pour nettoyer l'interface de toutes ces fausses affirmations et mettre en place `src/lib/capabilities.ts`.
