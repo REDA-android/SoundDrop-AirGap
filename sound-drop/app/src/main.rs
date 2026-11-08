@@ -32,6 +32,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Callbacks
     {
         let w = window_weak.clone();
+        window.on_switch_view(move |view| {
+            if let Some(win) = w.upgrade() {
+                win.set_current_view(view);
+            }
+        });
+    }
+
+    {
+        let w = window_weak.clone();
+        window.on_switch_band(move || {
+            if let Some(win) = w.upgrade() {
+                let cur = win.get_active_band();
+                let next = if cur == "AUDIBLE" { "ULTRASONIC" } else { "AUDIBLE" };
+                win.set_active_band(next.into());
+            }
+        });
+    }
+
+    {
+        let w = window_weak.clone();
         window.on_switch_state(move |state| {
             if let Some(win) = w.upgrade() {
                 update_ui_state(&win, &state);
