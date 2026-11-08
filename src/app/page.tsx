@@ -66,6 +66,9 @@ import { FileDropzone } from '@/components/transfer/FileDropzone';
 import { PeerCard } from '@/components/transfer/PeerCard';
 import { TransferMonitor } from '@/components/transfer/TransferMonitor';
 import { MeshParticleCanvas } from '@/components/canvas/MeshParticleCanvas';
+import { AcousticRadarStudioWorkspace } from '@/components/studio/AcousticRadarStudioWorkspace';
+import { SoundDropNativeApp } from '@/components/native-system/SoundDropNativeApp';
+import { Layers } from 'lucide-react';
 import {
   MultiProtocolPanel,
   UnifiedProtocol,
@@ -73,10 +76,12 @@ import {
 } from '@/components/transfer/MultiProtocolPanel';
 
 type AppMode = 'IDLE' | 'TRANSMITTING' | 'RECEIVING' | 'TRANSFERRING' | 'COMPLETED' | 'ERROR';
+type UnifiedWorkspaceView = 'ALL_FUSED' | 'HUB_10_PROTOCOLS' | 'RADAR_16FSK_STUDIO' | 'PROXIMITY_PAIRING' | 'NATIVE_SYSTEM_50_REPOS';
 
 export default function SoundDropApp() {
   // Primary Navigation Tab (Send vs Receive)
   const [activeTab, setActiveTab] = useState<'SEND' | 'RECEIVE'>('SEND');
+  const [workspaceView, setWorkspaceView] = useState<UnifiedWorkspaceView>('ALL_FUSED');
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [activeProtocol, setActiveProtocol] = useState<UnifiedProtocol>('ACOUSTIC');
 
@@ -816,6 +821,55 @@ export default function SoundDropApp() {
           />
         </section>
 
+        {/* UNIFIED ARCHITECTURE WORKSPACE BAR — FUSING ALL 4 REPOSITORY MODULES */}
+        <section
+          aria-label="Sélecteur d'architecture unifiée SoundDrop"
+          className="hardware-chassis rounded-2xl p-2.5 border border-white/15 flex flex-col gap-2"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 px-2 pt-0.5">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-[#FF6A1F]" />
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#F4F4F6]">
+                Architecture Unifiée Fusionnée (Tous les Dépôts & Modules Actifs — Zéro Mock)
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-[#34D399]">
+              4 Moteurs Réels Chargés • État Initial Vide
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-1.5 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/10">
+            {[
+              { id: 'ALL_FUSED', label: '★ Vue Totale Fusionnée (4-en-1)', badge: 'COMPLET' },
+              { id: 'HUB_10_PROTOCOLS', label: '1. Hub 10 Protocoles & Dossiers', badge: 'P2P/LAN' },
+              { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Bulles & Studio 16-FSK', badge: 'RS(80,64)' },
+              { id: 'PROXIMITY_PAIRING', label: '3. Appairage iPhone ↔ Mac/PC', badge: 'CHIRP' },
+              { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Système Natif A/B/C & 50 Dépôts', badge: 'AVX2/TOF' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setWorkspaceView(tab.id as UnifiedWorkspaceView)}
+                className={`flex items-center justify-between gap-1.5 px-3 py-2 rounded-lg font-mono text-[11px] transition-all ${
+                  workspaceView === tab.id
+                    ? 'bg-[#FF5500] text-white font-bold shadow-[0_0_20px_rgba(255,85,0,0.35)]'
+                    : 'bg-[#14141C] text-[#D4D4D8] hover:text-white hover:bg-[#1E1E2A]'
+                }`}
+              >
+                <span className="truncate">{tab.label}</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[9px] ${
+                    workspaceView === tab.id
+                      ? 'bg-black/30 text-white'
+                      : 'bg-white/5 text-[#A1A1AA]'
+                  }`}
+                >
+                  {tab.badge}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Collapsible Pro DSP & Transport Settings Drawer */}
         {showSettings && (
           <section
@@ -912,7 +966,8 @@ export default function SoundDropApp() {
           </section>
         )}
 
-        {/* 2-Column Studio Grid */}
+        {/* MODULE 1: 2-Column 10-Protocol Studio Grid */}
+        {(workspaceView === 'ALL_FUSED' || workspaceView === 'HUB_10_PROTOCOLS') && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* LEFT COLUMN (7 Cols): Primary File/Directory Source & P2P Session Controller */}
           <Card className="lg:col-span-7 flex flex-col gap-5">
@@ -1415,6 +1470,48 @@ export default function SoundDropApp() {
             />
           </Card>
         </div>
+        )}
+
+        {/* MODULE 2: AirDrop Physics Bubble Radar & 16-FSK RS(80,64) FEC Studio */}
+        {(workspaceView === 'ALL_FUSED' || workspaceView === 'RADAR_16FSK_STUDIO') && (
+          <section aria-label="Radar Bulles AirDrop et Studio DSP 16-FSK" className="w-full flex flex-col gap-4">
+            <AcousticRadarStudioWorkspace
+              modeView="RADAR_STUDIO"
+              globalSelectedFile={selectedFile}
+              onSelectGlobalFile={(file) => setSelectedFile(file)}
+              onTelemetryUpdate={(liveSnr, liveFreq) => {
+                setSnrDb(liveSnr);
+                if (liveFreq > 0) setDominantFreq(liveFreq);
+              }}
+            />
+          </section>
+        )}
+
+        {/* MODULE 3: Acoustic Proximity Pairing (iPhone Emitter <-> Mac/PC Receiver) */}
+        {(workspaceView === 'ALL_FUSED' || workspaceView === 'PROXIMITY_PAIRING') && (
+          <section aria-label="Appairage Acoustique de Proximité iPhone vers Mac/PC" className="w-full flex flex-col gap-4">
+            <AcousticRadarStudioWorkspace
+              modeView="PROXIMITY_PAIRING"
+              globalSelectedFile={selectedFile}
+              onSelectGlobalFile={(file) => setSelectedFile(file)}
+              onTelemetryUpdate={(liveSnr, liveFreq) => {
+                setSnrDb(liveSnr);
+                if (liveFreq > 0) setDominantFreq(liveFreq);
+              }}
+            />
+          </section>
+        )}
+
+        {/* MODULE 4: Native Vector Design System (Sections A, B & C + 50 Open-Source Repos Catalog) */}
+        {(workspaceView === 'ALL_FUSED' || workspaceView === 'NATIVE_SYSTEM_50_REPOS') && (
+          <section aria-label="Système Vectoriel Natif Sections A/B/C et Catalogue 50 Dépôts" className="w-full flex flex-col gap-4">
+            <SoundDropNativeApp
+              liveSnrDb={snrDb}
+              liveDominantFreq={dominantFreq || acousticCurrentFreq || 0}
+              selectedFile={selectedFile}
+            />
+          </section>
+        )}
       </main>
 
       <Footer />
