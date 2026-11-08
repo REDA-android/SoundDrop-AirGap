@@ -1,7 +1,11 @@
 [workspace]
 members = [
-    "dsp-engine",
-    "native-gui",
+    "crates/audio-io",
+    "crates/modem",
+    "crates/protocol",
+    "crates/crypto",
+    "crates/payload",
+    "app",
 ]
 resolver = "2"
 
@@ -10,5 +14,4 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
-overflow-checks = false
 strip = true

@@ -1,0 +1,588 @@
+// Sound Drop v2 Native UI (Slint)
+// Compliant with Section 5: Design tokens, central EmitButton, Page-Mascot, Peer Bubbles, SAS verification
+
+export struct PeerBubbleData {
+    id: int,
+    name: string,
+    snr_db: float,
+    x: length,
+    y: length,
+    radius: length,
+}
+
+component EmitButton inherits Rectangle {
+    in property <bool> active;
+    in property <string> label;
+    callback clicked();
+
+    width: 180px;
+    height: 180px;
+    border-radius: 90px;
+    border-width: 1px;
+    border-color: #ffffff40;
+    background: root.active ? #00F5D4 : #1a1d26;
+    animate background { duration: 220ms; easing: ease-out; }
+
+    Text {
+        text: root.label;
+        color: root.active ? #07080a : #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea { clicked => { root.clicked(); } }
+}
+
+component MascotFace inherits Rectangle {
+    in property <string> mascot-state: "REPOS"; // REPOS, ECOUTE, BRUIT_FORT, RECEPTION, SUCCES, ERREUR
+    width: 80px;
+    height: 80px;
+    background: transparent;
+
+    Text {
+        text: root.mascot-state == "REPOS" ? "•‿•" :
+              root.mascot-state == "ECOUTE" ? "•_•?" :
+              root.mascot-state == "BRUIT_FORT" ? ">_<" :
+              root.mascot-state == "RECEPTION" ? "◉_◉" :
+              root.mascot-state == "SUCCES" ? "^o^" : "¯\\_(ツ)_/¯";
+        color: root.mascot-state == "ERREUR" ? #FF5C5C :
+               root.mascot-state == "SUCCES" ? #00F5D4 :
+               root.mascot-state == "BRUIT_FORT" ? #FFB020 : #FFFFFF;
+        font-size: 26px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Sound Drop — Air-Gapped Acoustic Transfer";
+    preferred-width: 900px;
+    preferred-height: 640px;
+    background: #07080A; // Design token: Fond
+
+    // State machine: "INACTIF", "ECOUTE", "APPAIRAGE", "SAS", "ENVOI", "RECEPTION", "TERMINE", "ERREUR"
+    in-out property <string> current-state: "INACTIF";
+    in-out property <string> state-text: "Prêt pour le transfert acoustique";
+    in-out property <string> accessible-status: "Système inactif. Prêt à émettre ou recevoir.";
+    in-out property <string> current-lang: "FR"; // FR, EN, AR
+    in-out property <bool> reduce-animations: false;
+    in-out property <bool> software-diode-active: false;
+
+    // Transfer & Preview properties
+    in-out property <string> preview-filename: "miniature_photo.jpg";
+    in-out property <string> preview-filesize: "3.2 Ko";
+    in-out property <string> preview-blurhash: "LzHLlV2Z$5Shhqazjtf7gcfjfQfj";
+    in-out property <string> estimated-duration: "2 secondes";
+    in-out property <float> transfer-progress: 0.0; // 0.0 to 1.0
+    in-out property <string> sas-code: "490215";
+    in-out property <string> error-action-message: "Trop de bruit — éloignez-vous";
+    in-out property <float> ambient-noise-level: 22.0;
+
+    // Callbacks to Rust runtime
+    callback switch-state(string);
+    callback toggle-emit();
+    callback toggle-listen();
+    callback accept-preview();
+    callback reject-preview();
+    callback confirm-sas();
+    callback cycle-language();
+    callback toggle-diode();
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 16px;
+
+        // --- TOP BAR: Metalforge Titanium & Security Status ---
+        Rectangle {
+            height: 52px;
+            background: #0F1117; // Surface
+            border-radius: 8px;
+            border-width: 0.5px; // Hairline 0.5px
+            border-color: #ffffff20;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: center;
+                    Text {
+                        text: "SOUND DROP";
+                        color: #00F5D4; // Accent
+                        font-size: 16px;
+                        font-weight: 800;
+                        letter-spacing: 1px;
+                    }
+                    Text {
+                        text: "v2 Native GPU • Air-Gap";
+                        color: #A0A5B5;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: center;
+
+                    // Software Diode Button
+                    Rectangle {
+                        width: 140px;
+                        height: 32px;
+                        background: root.software-diode-active ? #4c0519 : #1a2234;
+                        border-radius: 6px;
+                        border-width: 0.5px;
+                        border-color: root.software-diode-active ? #FF5C5C : #ffffff20;
+
+                        Text {
+                            text: root.software-diode-active ? "DIODE RX SEULE" : "BIDIRECTIONNEL";
+                            color: root.software-diode-active ? #FF5C5C : #A0A5B5;
+                            font-size: 11px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.toggle-diode(); } }
+                    }
+
+                    // Language Selector
+                    Rectangle {
+                        width: 48px;
+                        height: 32px;
+                        background: #1a2234;
+                        border-radius: 6px;
+                        border-width: 0.5px;
+                        border-color: #ffffff20;
+
+                        Text {
+                            text: root.current-lang;
+                            color: #FFFFFF;
+                            font-size: 12px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.cycle-language(); } }
+                    }
+                }
+            }
+        }
+
+        // --- CENTER WORKSPACE ---
+        Rectangle {
+            background: #0F1117;
+            border-radius: 8px;
+            border-width: 0.5px;
+            border-color: #ffffff20;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 20px;
+                alignment: center;
+
+                // Page-Mascot & State Title
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    MascotFace {
+                        mascot-state: root.current-state == "INACTIF" ? "REPOS" :
+                                      root.current-state == "ECOUTE" ? "ECOUTE" :
+                                      root.current-state == "APPAIRAGE" ? "ECOUTE" :
+                                      root.current-state == "SAS" ? "RECEPTION" :
+                                      root.current-state == "ENVOI" ? "RECEPTION" :
+                                      root.current-state == "RECEPTION" ? "RECEPTION" :
+                                      root.current-state == "TERMINE" ? "SUCCES" : "ERREUR";
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: root.state-text;
+                            color: root.current-state == "ERREUR" ? #FF5C5C :
+                                   root.current-state == "TERMINE" ? #00F5D4 : #FFFFFF;
+                            font-size: 20px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.accessible-status;
+                            color: #A0A5B5;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // CENTRAL ACTION AREA
+                if root.current-state == "INACTIF" || root.current-state == "ECOUTE" || root.current-state == "APPAIRAGE" : HorizontalLayout {
+                    alignment: center;
+                    spacing: 24px;
+
+                    EmitButton {
+                        active: root.current-state == "APPAIRAGE" || root.current-state == "ECOUTE";
+                        label: root.current-state == "INACTIF" ? "ENVOYER" :
+                               root.current-state == "ECOUTE" ? "EN ÉCOUTE..." : "APPAIRAGE...";
+                        clicked => { root.toggle-emit(); }
+                    }
+
+                    EmitButton {
+                        active: root.current-state == "ECOUTE";
+                        label: "RECEVOIR";
+                        clicked => { root.toggle-listen(); }
+                    }
+                }
+
+                // SAS VERIFICATION SCREEN
+                if root.current-state == "SAS" : VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Text {
+                        text: "Vérifiez que le code correspond sur les deux appareils :";
+                        color: #A0A5B5;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 220px;
+                        height: 56px;
+                        background: #18202f;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: #00F5D4;
+
+                        Text {
+                            text: root.sas-code;
+                            color: #00F5D4;
+                            font-size: 28px;
+                            font-weight: 800;
+                            letter-spacing: 4px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Rectangle {
+                        width: 160px;
+                        height: 40px;
+                        background: #00F5D4;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "CONFIRMER";
+                            color: #07080A;
+                            font-size: 13px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.confirm-sas(); } }
+                    }
+                }
+
+                // PREVIEW (PAQUET 0) SCREEN
+                if root.current-state == "RECEPTION" : VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Rectangle {
+                        width: 320px;
+                        height: 140px;
+                        background: #18202f;
+                        border-radius: 8px;
+                        border-width: 0.5px;
+                        border-color: #00F5D4;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            Text {
+                                text: "Aperçu : " + root.preview-filename;
+                                color: #FFFFFF;
+                                font-size: 14px;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: "Taille : " + root.preview-filesize + " • Estimation : " + root.estimated-duration;
+                                color: #A0A5B5;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: "BlurHash : " + root.preview-blurhash;
+                                color: #00F5D4;
+                                font-size: 11px;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 12px;
+                                alignment: center;
+
+                                Rectangle {
+                                    width: 100px;
+                                    height: 32px;
+                                    background: #00F5D4;
+                                    border-radius: 6px;
+                                    Text {
+                                        text: "ACCEPTER";
+                                        color: #07080a;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    TouchArea { clicked => { root.accept-preview(); } }
+                                }
+
+                                Rectangle {
+                                    width: 100px;
+                                    height: 32px;
+                                    background: #FF5C5C;
+                                    border-radius: 6px;
+                                    Text {
+                                        text: "REFUSER";
+                                        color: #FFFFFF;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    TouchArea { clicked => { root.reject-preview(); } }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // PROGRESS BAR FOR ENVOI / RECEPTION
+                if root.current-state == "ENVOI" || root.current-state == "RECEPTION" : VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    width: 360px;
+
+                    Rectangle {
+                        height: 10px;
+                        background: #18202f;
+                        border-radius: 5px;
+
+                        Rectangle {
+                            x: 0;
+                            width: parent.width * root.transfer-progress;
+                            height: parent.height;
+                            background: #00F5D4;
+                            border-radius: 5px;
+                        }
+                    }
+
+                    Text {
+                        text: "Temps restant estimé : " + root.estimated-duration;
+                        color: #A0A5B5;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                // SUCCESS SCREEN
+                if root.current-state == "TERMINE" : VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Text {
+                        text: "Transfert acoustique terminé avec succès !";
+                        color: #00F5D4;
+                        font-size: 16px;
+                        font-weight: 700;
+                    }
+
+                    Rectangle {
+                        width: 140px;
+                        height: 36px;
+                        background: #18202f;
+                        border-radius: 6px;
+                        border-width: 0.5px;
+                        border-color: #00F5D4;
+
+                        Text {
+                            text: "NOUVEAU";
+                            color: #FFFFFF;
+                            font-size: 12px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("INACTIF"); } }
+                    }
+                }
+
+                // ERROR SCREEN WITH ACTIONABLE MESSAGE (Section 5.9)
+                if root.current-state == "ERREUR" : VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Text {
+                        text: root.error-action-message;
+                        color: #FF5C5C;
+                        font-size: 16px;
+                        font-weight: 700;
+                    }
+
+                    Rectangle {
+                        width: 140px;
+                        height: 36px;
+                        background: #18202f;
+                        border-radius: 6px;
+                        border-width: 0.5px;
+                        border-color: #FF5C5C;
+
+                        Text {
+                            text: "RÉESSAYER";
+                            color: #FFFFFF;
+                            font-size: 12px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("INACTIF"); } }
+                    }
+                }
+            }
+        }
+
+        // --- FOOTER STATUS & STATE SWITCHER (FOR PHASE 2 ACCEPTANCE) ---
+        Rectangle {
+            height: 44px;
+            background: #0F1117;
+            border-radius: 8px;
+            border-width: 0.5px;
+            border-color: #ffffff20;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                alignment: space-between;
+
+                Text {
+                    text: "Bruit ambiant : " + root.ambient-noise-level + " dB • Rapier2D Physics • 60 FPS";
+                    color: #A0A5B5;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: center;
+
+                    // Navigation buttons to navigate every state (Phase 2 acceptance criteria)
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "INACTIF" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Inactif";
+                            color: root.current-state == "INACTIF" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("INACTIF"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "ECOUTE" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Écoute";
+                            color: root.current-state == "ECOUTE" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("ECOUTE"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "SAS" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "SAS";
+                            color: root.current-state == "SAS" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("SAS"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "ENVOI" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Envoi";
+                            color: root.current-state == "ENVOI" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("ENVOI"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "RECEPTION" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Récept";
+                            color: root.current-state == "RECEPTION" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("RECEPTION"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "TERMINE" ? #00F5D4 : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Terminé";
+                            color: root.current-state == "TERMINE" ? #07080a : #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("TERMINE"); } }
+                    }
+                    Rectangle {
+                        width: 60px;
+                        height: 26px;
+                        background: root.current-state == "ERREUR" ? #FF5C5C : #1a2234;
+                        border-radius: 4px;
+                        Text {
+                            text: "Erreur";
+                            color: #FFFFFF;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { clicked => { root.switch-state("ERREUR"); } }
+                    }
+                }
+            }
+        }
+    }
+}
