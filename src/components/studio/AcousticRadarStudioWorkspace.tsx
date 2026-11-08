@@ -46,21 +46,21 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
   const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
   const [currentBand, setCurrentBand] = useState<AcousticBand>('audible');
   const [txMode, setTxMode] = useState<TransmissionMode>('broadcast');
-  const [loopbackActive, setLoopbackActive] = useState<boolean>(true);
+  const [loopbackActive, setLoopbackActive] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isTransmitting, setIsTransmitting] = useState<boolean>(false);
   const [demodState, setDemodState] = useState<DemodState>('IDLE');
   const [telemetry, setTelemetry] = useState<AcousticTelemetry | null>(null);
 
-  // Reed-Solomon RS(80,64) Packet Matrix State
+  // Matrice de paquets acoustiques
   const [totalPackets, setTotalPackets] = useState<number>(0);
   const [receivedMap, setReceivedMap] = useState<Map<number, Packet>>(new Map());
   const [healedIndices, setHealedIndices] = useState<Set<number>>(new Set());
   const [receivedDrop, setReceivedDrop] = useState<DropResult | null>(null);
   const [lastTestSuccess, setLastTestSuccess] = useState<boolean | null>(null);
 
-  // Optional XSalsa20-Poly1305 E2EE PIN State
-  const [encryptionEnabled, setEncryptionEnabled] = useState<boolean>(false);
+  // Chiffrement actif par défaut
+  const [encryptionEnabled, setEncryptionEnabled] = useState<boolean>(true);
   const [encryptionPin, setEncryptionPin] = useState<string>('');
 
   // Proximity Pairing (Phone-to-Mac) Real State
@@ -262,7 +262,7 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
   const handleRunLoopbackSelfTest = useCallback(async () => {
     setLastTestSuccess(null);
     const timestamp = new Date().toISOString();
-    const testPayload = `SOUNDDROP-RS(80,64)-SELF-TEST @ ${timestamp}`;
+    const testPayload = `SOUNDDROP-SELF-TEST @ ${timestamp}`;
     await handleSendText(testPayload);
   }, [handleSendText]);
 
@@ -412,14 +412,22 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
               </div>
               <button
                 type="button"
-                onClick={() => setEncryptionEnabled(!encryptionEnabled)}
+                onClick={() => {
+                  if (encryptionEnabled) {
+                    if (window.confirm('Attention : En désactivant le chiffrement, les données seront audibles et lisibles par toute personne enregistrant le son. Confirmer ?')) {
+                      setEncryptionEnabled(false);
+                    }
+                  } else {
+                    setEncryptionEnabled(true);
+                  }
+                }}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-colors ${
                   encryptionEnabled
                     ? 'bg-emerald-950 border-emerald-500 text-emerald-300 font-bold'
                     : 'bg-slate-900 border-slate-700 text-slate-400'
                 }`}
               >
-                {encryptionEnabled ? 'E2EE ACTIF' : 'DÉSACTIVÉ'}
+                {encryptionEnabled ? 'CHIFFREMENT ACTIF' : 'NON CHIFFRÉ'}
               </button>
             </div>
             {encryptionEnabled && (
@@ -446,7 +454,7 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
         isTransmitting={isTransmitting}
       />
 
-      {/* 16-FSK Goertzel Symbol Filter Bank & RS(80,64) FEC Packet Matrix */}
+      {/* 16-FSK Goertzel Symbol Filter Bank & Matrice de Paquets */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <GoertzelSymbolBars telemetry={telemetry} config={config} />
         <PacketMatrixGrid

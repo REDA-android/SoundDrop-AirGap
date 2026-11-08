@@ -79,7 +79,7 @@ export const PageMascot: React.FC<PageMascotProps> = ({
       ? 'SHA-256 OK !'
       : mode === 'ERROR'
       ? 'Alerte lien'
-      : 'Prêt (0 mock)';
+      : 'Prêt à écouter';
 
   return (
     <button

@@ -67,7 +67,7 @@ import { PeerCard } from '@/components/transfer/PeerCard';
 import { TransferMonitor } from '@/components/transfer/TransferMonitor';
 import { MeshParticleCanvas } from '@/components/canvas/MeshParticleCanvas';
 import { AcousticRadarStudioWorkspace } from '@/components/studio/AcousticRadarStudioWorkspace';
-import { SoundDropNativeApp } from '@/components/native-system/SoundDropNativeApp';
+import { RoadmapDocsPanel } from '@/components/transfer/RoadmapDocsPanel';
 import { Layers } from 'lucide-react';
 import {
   MultiProtocolPanel,
@@ -830,20 +830,20 @@ export default function SoundDropApp() {
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[#FF6A1F]" />
               <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#F4F4F6]">
-                Architecture Unifiée Fusionnée (Tous les Dépôts & Modules Actifs — Zéro Mock)
+                Poste de Commande SoundDrop (Version Web)
               </span>
             </div>
             <span className="font-mono text-[10px] text-[#34D399]">
-              4 Moteurs Réels Chargés • État Initial Vide
+              Modem ggwave WASM & WebRTC actif
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-1.5 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/10">
             {[
-              { id: 'ALL_FUSED', label: '★ Vue Totale Fusionnée (4-en-1)', badge: 'COMPLET' },
-              { id: 'HUB_10_PROTOCOLS', label: '1. Hub 10 Protocoles & Dossiers', badge: 'P2P/LAN' },
-              { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Bulles & Studio 16-FSK', badge: 'RS(80,64)' },
-              { id: 'PROXIMITY_PAIRING', label: '3. Appairage iPhone ↔ Mac/PC', badge: 'CHIRP' },
-              { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Système Natif A/B/C & 50 Dépôts', badge: 'AVX2/TOF' },
+              { id: 'ALL_FUSED', label: '★ Vue Totale', badge: 'COMPLET' },
+              { id: 'PROXIMITY_PAIRING', label: '1. Appairage Acoustique', badge: 'CHIRP' },
+              { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Sonore & 16-FSK', badge: 'MFSK' },
+              { id: 'HUB_10_PROTOCOLS', label: '3. Protocoles P2P & Hors-Ligne', badge: 'WEBRTC' },
+              { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Documentation & Roadmap', badge: 'DOCS' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1502,14 +1502,10 @@ export default function SoundDropApp() {
           </section>
         )}
 
-        {/* MODULE 4: Native Vector Design System (Sections A, B & C + 50 Open-Source Repos Catalog) */}
+        {/* MODULE 4: Specifications, Documentation & Honest Roadmap */}
         {(workspaceView === 'ALL_FUSED' || workspaceView === 'NATIVE_SYSTEM_50_REPOS') && (
-          <section aria-label="Système Vectoriel Natif Sections A/B/C et Catalogue 50 Dépôts" className="w-full flex flex-col gap-4">
-            <SoundDropNativeApp
-              liveSnrDb={snrDb}
-              liveDominantFreq={dominantFreq || acousticCurrentFreq || 0}
-              selectedFile={selectedFile}
-            />
+          <section aria-label="Feuille de Route & Documentation" className="w-full flex flex-col gap-4">
+            <RoadmapDocsPanel />
           </section>
         )}
       </main>

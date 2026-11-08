@@ -129,8 +129,20 @@ npm run build
 
 ---
 
-## 4. Bilan et Actions Immédiates pour Phase 1
-1. **Aucun code fonctionnel n'a été modifié en Phase 0**.
+## 4. Bilan de la Phase 0
+1. Aucun code fonctionnel n'a été modifié en Phase 0.
 2. Les 15 affirmations ont été cartographiées avec leurs emplacements précis dans les fichiers sources.
 3. Les 10 questions de l'audit sont rigoureusement documentées.
-4. L'implémentation de la Phase 1 peut débuter pour nettoyer l'interface de toutes ces fausses affirmations et mettre en place `src/lib/capabilities.ts`.
+
+---
+
+## 5. Journal des Déplacements et Archivages vers `legacy/` (Phase 1)
+Conformément à la règle 8 (« Ne supprime rien sans le lister dans AUDIT.md avec la raison. Garde les anciens fichiers dans legacy/ quand c’est raisonnable ») :
+
+1. **`src/components/native-system/` déplacé vers `legacy/native-system/`** :
+   - *Raison* : Contenait des affirmations factices (« AVX2 », « WASAPI Exclusive », « ToF Co-Présence < 1.50m », « Doppler PLL 16 kHz », « Diode bidirectionnelle ») impossibles à exécuter dans un navigateur web standard.
+   - *Remplacement* : Spécifications documentées dans `docs/ARCHITECTURE-NATIVE.md` (document de conception) et catalogue des 50 dépôts déplacé dans `docs/REFERENCES.md`.
+2. **`src/components/transfer/OpenDropPanel.tsx` archivé dans `legacy/OpenDropPanel.tsx`** :
+   - *Raison* : Simulation de l'interface AirDrop / AWDL sans sockets directes réseau local.
+   - *Remplacement* : Étiquette « Prévu » dans la feuille de route (`RoadmapDocsPanel`).
+

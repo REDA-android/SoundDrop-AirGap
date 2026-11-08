@@ -87,7 +87,7 @@ export const AcousticSettings: React.FC<AcousticSettingsProps> = ({
                 <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
                 Audible Robust
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">1.6 – 4.4 kHz (3-5m)</span>
+              <span className="text-[10px] text-slate-500 font-mono">1.6 – 4.4 kHz (portée à mesurer)</span>
             </button>
 
             <button
