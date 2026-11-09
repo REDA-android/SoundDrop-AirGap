@@ -280,3 +280,7 @@ impl ErasureCoder {
         Ok(output)
     }
 }
+
+pub mod relay;
+pub use relay::{RelayError, RelayHeader, RelayPacket, StoreAndForwardQueue};
+
