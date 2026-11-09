@@ -5126,6 +5126,7 @@ dependencies = [
  "libc",
  "rustfft",
  "sounddrop-audio-io",
+ "sounddrop-crypto",
  "sounddrop-protocol",
  "thiserror 1.0.69",
 ]

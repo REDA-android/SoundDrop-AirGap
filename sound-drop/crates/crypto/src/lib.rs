@@ -152,3 +152,32 @@ pub fn decrypt_frame(
         .decrypt(nonce, payload)
         .map_err(|_| CryptoError::DecryptionFailed)
 }
+
+/// Compute 4-byte truncated recipient hash from public key: SHA-256(pub_key)[0..4]
+pub fn compute_recipient_hash(public_key_bytes: &[u8; 32]) -> [u8; 4] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"SOUNDDROP-V2-RECIPIENT-HASH");
+    hasher.update(public_key_bytes);
+    let hash = hasher.finalize();
+    let mut out = [0u8; 4];
+    out.copy_from_slice(&hash[0..4]);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_recipient_hash() {
+        let pub_key = [0x42u8; 32];
+        let h1 = compute_recipient_hash(&pub_key);
+        let h2 = compute_recipient_hash(&pub_key);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 4);
+
+        let pub_key_different = [0x43u8; 32];
+        let h3 = compute_recipient_hash(&pub_key_different);
+        assert_ne!(h1, h3);
+    }
+}
