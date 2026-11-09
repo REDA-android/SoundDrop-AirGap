@@ -5107,6 +5107,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sounddrop-bridge"
+version = "0.2.0"
+dependencies = [
+ "jni 0.21.1",
+ "libc",
+ "sounddrop-crypto",
+ "sounddrop-mesh",
+ "sounddrop-modem",
+ "sounddrop-orbital",
+ "sounddrop-protocol",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sounddrop-crypto"
 version = "0.2.0"
 dependencies = [
