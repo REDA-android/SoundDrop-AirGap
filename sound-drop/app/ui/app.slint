@@ -116,7 +116,7 @@ export component MainWindow inherits Window {
     background: #07080A; // Design token: Fond obsidian
 
     // Core application state
-    in-out property <string> current-view: "RADAR"; // RADAR, STUDIO_FSK, TRANSFERT, PROTOCOLES
+    in-out property <string> current-view: "RADAR"; // RADAR, STUDIO_FSK, TRANSFERT, PROTOCOLES, MESH, SATELLITE
     in-out property <string> current-state: "INACTIF"; // INACTIF, ECOUTE, APPAIRAGE, SAS, ENVOI, RECEPTION, TERMINE, ERREUR
     in-out property <string> state-text: "Prêt pour le transfert acoustique";
     in-out property <string> accessible-status: "Système inactif. Prêt à émettre ou recevoir.";
@@ -125,6 +125,14 @@ export component MainWindow inherits Window {
     in-out property <string> active-profile: "Normal (14 o/s)";
     in-out property <bool> software-diode-active: false;
     in-out property <bool> reduce-animations: false;
+
+    // Mesh & Orbital properties
+    in-out property <int> mesh-neighbors-count: 3;
+    in-out property <string> mesh-best-relay: "Relais Douar #2 (LQI: 92%)";
+    in-out property <string> mesh-route-hops: "Alice -> R1 -> R2 -> Bob (3 sauts)";
+    in-out property <string> satellite-status: "En attente de passage orbital (LEO)";
+    in-out property <string> satellite-provider-name: "Iridium SBD 9603 (Bande L)";
+    in-out property <int> satellite-queued-msgs: 1;
 
     // Metrics & Telemetry
     in-out property <float> live-snr-db: 24.5;
@@ -318,7 +326,7 @@ export component MainWindow inherits Window {
                     background: root.current-view == "PROTOCOLES" ? #00F5D4 : transparent;
                     border-radius: 6px;
                     Text {
-                        text: "HUB 10 PROTOCOLES & 50 DÉPÔTS";
+                        text: "PROTOCOLES";
                         color: root.current-view == "PROTOCOLES" ? #07080A : #A0A5B5;
                         font-size: 11px;
                         font-weight: 800;
@@ -326,6 +334,34 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                     TouchArea { clicked => { root.switch-view("PROTOCOLES"); } }
+                }
+
+                Rectangle {
+                    background: root.current-view == "MESH" ? #00F5D4 : transparent;
+                    border-radius: 6px;
+                    Text {
+                        text: "MAILLAGE MESH";
+                        color: root.current-view == "MESH" ? #07080A : #A0A5B5;
+                        font-size: 11px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { clicked => { root.switch-view("MESH"); } }
+                }
+
+                Rectangle {
+                    background: root.current-view == "SATELLITE" ? #00F5D4 : transparent;
+                    border-radius: 6px;
+                    Text {
+                        text: "RELAIS SATELLITE";
+                        color: root.current-view == "SATELLITE" ? #07080A : #A0A5B5;
+                        font-size: 11px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { clicked => { root.switch-view("SATELLITE"); } }
                 }
             }
         }
@@ -853,6 +889,128 @@ export component MainWindow inherits Window {
                                 color: #FFFFFF;
                                 font-size: 11px;
                             }
+                        }
+                    }
+                }
+
+                // =============================================================
+                // VIEW E: MAILLAGE MESH ACOUSTIQUE
+                // =============================================================
+                if root.current-view == "MESH" : VerticalLayout {
+                    spacing: 14px;
+
+                    Text {
+                        text: "Topologie Réseau Maillé Acoustique & Routage AODV";
+                        color: #00F5D4;
+                        font-size: 15px;
+                        font-weight: 800;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Rectangle {
+                            background: #141824;
+                            border-radius: 8px;
+                            border-width: 0.5px;
+                            border-color: #00F5D460;
+                            height: 70px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 10px;
+                                Text { text: "VOISINS ACTIFS"; font-size: 10px; font-weight: 800; color: #A0A5B5; }
+                                Text { text: "" + root.mesh-neighbors-count + " Nœuds à portée"; font-size: 14px; font-weight: 900; color: #00F5D4; }
+                            }
+                        }
+
+                        Rectangle {
+                            background: #141824;
+                            border-radius: 8px;
+                            border-width: 0.5px;
+                            border-color: #38bdf860;
+                            height: 70px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 10px;
+                                Text { text: "MEILLEUR RELAIS SÉLECTIONNÉ"; font-size: 10px; font-weight: 800; color: #A0A5B5; }
+                                Text { text: root.mesh-best-relay; font-size: 13px; font-weight: 800; color: #38bdf8; }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 90px;
+                        background: #0b0e14;
+                        border-radius: 8px;
+                        border-width: 0.5px;
+                        border-color: #ffffff20;
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 6px;
+                            Text { text: "CHEMIN MULTI-SAUTS AODV DYNAMIQUE :"; font-size: 11px; font-weight: 800; color: #A0A5B5; }
+                            Text { text: root.mesh-route-hops; font-size: 14px; font-weight: 900; color: #FFFFFF; }
+                            Text { text: "Store-and-Forward actif • TTL: 5 • Déduplication automatique"; font-size: 10px; color: #00F5D4aa; }
+                        }
+                    }
+                }
+
+                // =============================================================
+                // VIEW F: RELAIS SATELLITE ORBITAL (SOR)
+                // =============================================================
+                if root.current-view == "SATELLITE" : VerticalLayout {
+                    spacing: 14px;
+
+                    Text {
+                        text: "SoundDrop Orbital Relay (SOR) — Zéro Couverture Rurale";
+                        color: #00F5D4;
+                        font-size: 15px;
+                        font-weight: 800;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Rectangle {
+                            background: #141824;
+                            border-radius: 8px;
+                            border-width: 0.5px;
+                            border-color: #c084fc60;
+                            height: 70px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 10px;
+                                Text { text: "FOURNISSEUR MATÉRIEL"; font-size: 10px; font-weight: 800; color: #A0A5B5; }
+                                Text { text: root.satellite-provider-name; font-size: 13px; font-weight: 800; color: #c084fc; }
+                            }
+                        }
+
+                        Rectangle {
+                            background: #141824;
+                            border-radius: 8px;
+                            border-width: 0.5px;
+                            border-color: #FFB02060;
+                            height: 70px;
+                            VerticalLayout {
+                                alignment: center;
+                                padding: 10px;
+                                Text { text: "STATUT DU PASSAGE LEO"; font-size: 10px; font-weight: 800; color: #A0A5B5; }
+                                Text { text: root.satellite-status; font-size: 13px; font-weight: 800; color: #FFB020; }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 90px;
+                        background: #0b0e14;
+                        border-radius: 8px;
+                        border-width: 0.5px;
+                        border-color: #ffffff20;
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 6px;
+                            Text { text: "FILE D'ATTENTE STORE-AND-FORWARD ORBITALE :"; font-size: 11px; font-weight: 800; color: #A0A5B5; }
+                            Text { text: "" + root.satellite-queued-msgs + " message chiffré en attente d'élévation orbitale"; font-size: 13px; font-weight: 700; color: #FFFFFF; }
+                            Text { text: "Compression vocale Codec 2 active (450 bps / 56 o/s) • E2EE ChaCha20-Poly1305"; font-size: 10px; color: #00F5D4aa; }
                         }
                     }
                 }

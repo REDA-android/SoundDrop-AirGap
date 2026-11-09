@@ -5090,7 +5090,9 @@ dependencies = [
  "slint-build",
  "sounddrop-audio-io",
  "sounddrop-crypto",
+ "sounddrop-mesh",
  "sounddrop-modem",
+ "sounddrop-orbital",
  "sounddrop-payload",
  "sounddrop-protocol",
 ]
