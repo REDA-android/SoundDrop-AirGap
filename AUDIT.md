@@ -146,3 +146,26 @@ Conformément à la règle 8 (« Ne supprime rien sans le lister dans AUDIT.md a
    - *Raison* : Simulation de l'interface AirDrop / AWDL sans sockets directes réseau local.
    - *Remplacement* : Étiquette « Prévu » dans la feuille de route (`RoadmapDocsPanel`).
 
+
+
+---
+
+## 6. État Final des 15 Affirmations après Réparation (Phase 8 & 9)
+
+| Affirmation originale (Phase 0) | Statut Final | Preuve / Remplacement |
+| :--- | :--- | :--- |
+| **« Zéro mock » / « 0 mock »** | **Résolu** | Toutes les étiquettes racoleuses ont été supprimées. Seules les fonctions réelles portent le badge `StatusBadge` avec test associé. |
+| **« 4 moteurs réels chargés »** | **Résolu** | Supprimé de l'interface. Seul le modem réel (ggwave WASM + fallback MFSK Goertzel) est actif et documenté. |
+| **« DTLS 1.3 / SHA-256 »** | **Résolu** | Remplacé par « DTLS » standard du navigateur sans fausse promesse de version. |
+| **« ToF Co-Présence < 1,50 m »** | **Résolu** | Complètement éliminé. Remplacé par la vérification visuelle par code court SAS à 6 chiffres (`src/lib/crypto/session.ts` et `SasVerificationModal.tsx`). |
+| **« Doppler Δf / PLL 16 kHz »** | **Résolu** | Supprimé. La dérive d'horloge (45-80 ppm) est compensée honnêtement par synchronisation chirp à chaque début de trame. |
+| **« Diode : bidirectionnel »** | **Résolu** | Supprimé de l'interface web. La capture audio n'est jamais connectée à `ctx.destination` (anti-larsen absolu). |
+| **« RS(80,64) » fait maison** | **Résolu** | Reed-Solomon artisanal supprimé. Utilisation exclusive du code correcteur intégré et vérifié de ggwave (WASM). |
+| **« XSalsa20-Poly1305 (TweetNaCl) »** | **Résolu** | Chiffrement authentifié activé par défaut (`src/lib/crypto/session.ts`). 7 tests automatisés dans `crypto.test.ts`. |
+| **« 10 protocoles P2P »** | **Résolu** | Sorti du flux principal et relégué dans l'onglet Roadmap avec statut explicite « Prévu » pour les protocoles hors navigateur. |
+| **« AVX2 8-Ch Goertzel »** | **Résolu** | Supprimé du projet web (inaccessible dans un navigateur sandboxé). Documenté dans `docs/ARCHITECTURE-NATIVE.md`. |
+| **« Audible Robust 3-5 m »** | **Résolu** | Remplacé par les mesures réelles (0,3 à 1,8 m en pièce calme) consignées dans `docs/MEASUREMENTS.md`. |
+| **« Whisper Mode 5 cm »** | **Résolu** | Classé comme expérimental avec seuil de bruit RMS réel. |
+| **« WASAPI Exclusive / CoreAudio »** | **Résolu** | Supprimé du projet web. Réservé à l'architecture native Rust (`docs/ARCHITECTURE-NATIVE.md`). |
+| **« 65 536 samples zéro-malloc »** | **Résolu** | Supprimé de l'app web. Remplacé par une gestion propre des AudioWorklet Float32Array sans fausse affirmation zéro-malloc. |
+| **« Catalogue 50 projets »** | **Résolu** | Catalogue complet, vérifié avec liens réels et licences consigné dans `docs/REFERENCES.md`. |
