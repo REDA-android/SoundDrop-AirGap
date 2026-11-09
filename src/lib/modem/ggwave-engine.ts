@@ -54,13 +54,15 @@ export async function createGgwaveModem(sampleRate = 48000): Promise<AcousticMod
         return new Float32Array(0);
       }
 
-      // Copie sûre des échantillons Float32 avec silence de garde (2048 samples) pour clore le marqueur de fin
+      // Copie sûre des échantillons Float32 avec silence de tête (2048 = 42ms) et queue (10240 = 213ms)
       const numSamples = Math.floor(waveBytes.byteLength / 4);
-      const guardSamples = 2048;
-      const out = new Float32Array(numSamples + guardSamples);
+      const leadIn = 2048;
+      const leadOut = 10240;
+      const rawTotal = leadIn + numSamples + leadOut;
+      const paddedTotal = Math.ceil(rawTotal / frameSamples) * frameSamples;
+      const out = new Float32Array(paddedTotal);
       const view = new Float32Array(waveBytes.buffer, waveBytes.byteOffset, numSamples);
-      out.set(view, 0);
-      // Les guardSamples restent à 0.0 (silence)
+      out.set(view, leadIn);
       return out;
     },
 
@@ -76,8 +78,8 @@ export async function createGgwaveModem(sampleRate = 48000): Promise<AcousticMod
       const decodedMessages: Uint8Array[] = [];
 
       for (let offset = 0; offset < usableSamples; offset += frameSamples) {
-        const frameSlice = merged.subarray(offset, offset + frameSamples);
-        const frameBytes = new Uint8Array(frameSlice.buffer, frameSlice.byteOffset, frameSlice.byteLength);
+        const frameSlice = merged.slice(offset, offset + frameSamples);
+        const frameBytes = new Uint8Array(frameSlice.buffer, 0, frameSlice.byteLength);
         const result = g.decode(instance, frameBytes);
         if (result && result.length > 0) {
           const u8 = new Uint8Array(result.length);

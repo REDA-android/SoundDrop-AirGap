@@ -41,7 +41,7 @@ export function evaluateNoiseLevel(rmsDb: number): NoiseStatus {
     };
   }
 
-  if (rmsDb <= -35) {
+  if (rmsDb <= -30) {
     return {
       rmsDb,
       environment: 'noisy',
@@ -57,3 +57,9 @@ export function evaluateNoiseLevel(rmsDb: number): NoiseStatus {
     actionAdvice: 'Éloignez-vous des sources de bruit ou utilisez le mode ultrasonique.',
   };
 }
+
+export const calculateRmsDbfs = rmsDbfs;
+export function classifyNoiseLevel(rmsDb: number): NoiseEnvironment {
+  return evaluateNoiseLevel(rmsDb).environment;
+}
+

@@ -67,6 +67,7 @@ import { PeerCard } from '@/components/transfer/PeerCard';
 import { TransferMonitor } from '@/components/transfer/TransferMonitor';
 import { MeshParticleCanvas } from '@/components/canvas/MeshParticleCanvas';
 import { AcousticRadarStudioWorkspace } from '@/components/studio/AcousticRadarStudioWorkspace';
+import { ThreeStepTransfer } from '@/components/transfer/ThreeStepTransfer';
 import { RoadmapDocsPanel } from '@/components/transfer/RoadmapDocsPanel';
 import { Layers } from 'lucide-react';
 import {
@@ -76,12 +77,18 @@ import {
 } from '@/components/transfer/MultiProtocolPanel';
 
 type AppMode = 'IDLE' | 'TRANSMITTING' | 'RECEIVING' | 'TRANSFERRING' | 'COMPLETED' | 'ERROR';
-type UnifiedWorkspaceView = 'ALL_FUSED' | 'HUB_10_PROTOCOLS' | 'RADAR_16FSK_STUDIO' | 'PROXIMITY_PAIRING' | 'NATIVE_SYSTEM_50_REPOS';
+type UnifiedWorkspaceView =
+  | 'THREE_STEP_TRANSFER'
+  | 'ALL_FUSED'
+  | 'HUB_10_PROTOCOLS'
+  | 'RADAR_16FSK_STUDIO'
+  | 'PROXIMITY_PAIRING'
+  | 'NATIVE_SYSTEM_50_REPOS';
 
 export default function SoundDropApp() {
   // Primary Navigation Tab (Send vs Receive)
   const [activeTab, setActiveTab] = useState<'SEND' | 'RECEIVE'>('SEND');
-  const [workspaceView, setWorkspaceView] = useState<UnifiedWorkspaceView>('ALL_FUSED');
+  const [workspaceView, setWorkspaceView] = useState<UnifiedWorkspaceView>('THREE_STEP_TRANSFER');
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [activeProtocol, setActiveProtocol] = useState<UnifiedProtocol>('ACOUSTIC');
 
@@ -839,10 +846,10 @@ export default function SoundDropApp() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-1.5 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/10">
             {[
-              { id: 'ALL_FUSED', label: '★ Vue Totale', badge: 'COMPLET' },
+              { id: 'THREE_STEP_TRANSFER', label: '★ Parcours 3 Écrans', badge: 'PRINCIPAL' },
               { id: 'PROXIMITY_PAIRING', label: '1. Appairage Acoustique', badge: 'CHIRP' },
               { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Sonore & 16-FSK', badge: 'MFSK' },
-              { id: 'HUB_10_PROTOCOLS', label: '3. Protocoles P2P & Hors-Ligne', badge: 'WEBRTC' },
+              { id: 'HUB_10_PROTOCOLS', label: '3. WebRTC LAN & Fichiers', badge: 'LAN' },
               { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Documentation & Roadmap', badge: 'DOCS' },
             ].map((tab) => (
               <button
@@ -966,8 +973,15 @@ export default function SoundDropApp() {
           </section>
         )}
 
+        {/* PARCOURS PRINCIPAL EN 3 ÉTAPES CLAIRES (PHASE 6) */}
+        {(workspaceView === 'THREE_STEP_TRANSFER' || workspaceView === 'ALL_FUSED') && (
+          <section aria-label="Parcours de transfert acoustique en 3 étapes" className="w-full">
+            <ThreeStepTransfer />
+          </section>
+        )}
+
         {/* MODULE 1: 2-Column 10-Protocol Studio Grid */}
-        {(workspaceView === 'ALL_FUSED' || workspaceView === 'HUB_10_PROTOCOLS') && (
+        {workspaceView === 'HUB_10_PROTOCOLS' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* LEFT COLUMN (7 Cols): Primary File/Directory Source & P2P Session Controller */}
           <Card className="lg:col-span-7 flex flex-col gap-5">
