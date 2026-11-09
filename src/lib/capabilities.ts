@@ -17,6 +17,7 @@ export const CAPABILITIES: Capability[] = [
   { id: 'sas-pairing', label: 'Vérification par code court (SAS)', status: 'real', verifiedBy: 'src/lib/crypto/crypto.test.ts' },
   { id: 'webrtc-lan', label: 'WebRTC réseau local', status: 'experimental' },
   { id: 'pwa-offline', label: 'Utilisation hors ligne', status: 'real', verifiedBy: 'src/lib/pwa/pwa.test.ts' },
+  { id: 'satellite-orbital-relay', label: 'Relais Satellite Orbital (SOR)', status: 'experimental', verifiedBy: 'src/lib/satellite/satellite.test.ts' },
 ];
 
 export const byId = (id: string): Capability | undefined => CAPABILITIES.find((c) => c.id === id);
