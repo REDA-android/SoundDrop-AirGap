@@ -281,12 +281,12 @@ export function ThreeStepTransfer() {
           ? new TextEncoder().encode(textContent)
           : fileBytes || new Uint8Array();
 
-      // 2. Chiffrement authentifié si activé
+      // 2. Chiffrement authentifié si activé (clé éphémère ECIES)
       let finalPayload = rawPayload;
       let nonce = new Uint8Array(24);
       if (encrypted && myKeyPair) {
-        const dummyPeer = newKeyPair();
-        const derivedKey = sessionKey(dummyPeer.publicKey, myKeyPair.secretKey);
+        const ephemeralKeyPair = newKeyPair();
+        const derivedKey = sessionKey(ephemeralKeyPair.publicKey, myKeyPair.secretKey);
         const sealed = seal(rawPayload, derivedKey);
         finalPayload = new Uint8Array(sealed.box);
         nonce = new Uint8Array(sealed.nonce);

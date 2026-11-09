@@ -298,7 +298,7 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-100">
-                Appairage Acoustique de Proximité (iPhone Emitter ↔ Mac/PC Receiver)
+                Appairage Acoustique de Proximité (Émetteur ↔ Récepteur)
               </h2>
               <p className="text-xs font-mono text-slate-400">
                 Balayage bi-tonalité 1800→2400 Hz + Sous-porteuse d&apos;identification • Zéro donnée fictive
@@ -316,13 +316,13 @@ export const AcousticRadarStudioWorkspace: React.FC<AcousticRadarStudioWorkspace
 
         {/* Side-by-Side Emitter & Receiver Console */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left: iPhone / Mobile Ultrasonic Bubble Emitter */}
+          {/* Left: Ultrasonic / Audible Bubble Emitter */}
           <div className="rounded-3xl bg-[#0D101A] border border-white/10 p-6 flex flex-col items-center shadow-2xl">
             <div className="w-full flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-4 h-4 text-cyan-400" />
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                  Émetteur Bulle Acoustique (Mobile / iPhone)
+                  Émetteur Bulle Acoustique (Émetteur)
                 </span>
               </div>
               <span className="text-[11px] font-mono text-cyan-400">Chirp 1.8–3.85 kHz</span>

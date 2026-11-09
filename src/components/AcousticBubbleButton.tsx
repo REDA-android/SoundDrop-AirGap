@@ -84,7 +84,7 @@ export const AcousticBubbleButton: React.FC<Props> = ({
                 Acoustically Paired
               </span>
               <span className="text-xs text-emerald-400/80 font-mono mt-0.5">
-                {pairedDeviceName || 'MacBook Pro'}
+                {pairedDeviceName || 'Pair Acoustique Détecté'}
               </span>
             </>
           ) : (

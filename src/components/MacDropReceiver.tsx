@@ -59,7 +59,7 @@ export const MacDropReceiver: React.FC<Props> = ({
         await rx.startListening(
           async (sessionId, snrDb) => {
             setPairedSessionId(sessionId);
-            setPairedDevice(`iPhone 16 Pro (Node #${sessionId})`);
+            setPairedDevice(`Nœud Acoustique #${sessionId}`);
             setLastSnr(snrDb);
             setShowConfirmationRing(true);
 
