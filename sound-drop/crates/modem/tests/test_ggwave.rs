@@ -6,7 +6,7 @@ fn test_ggwave_encode_decode_roundtrip() {
     let rx = GgwaveModem::new(48000.0).expect("failed to init rx modem");
 
     let payload = b"Hello, Sound Drop v2!";
-    let mut samples = tx
+    let samples = tx
         .encode(payload, ProtocolId::AudibleFast, 25)
         .expect("encoding failed");
 
