@@ -25,6 +25,8 @@ pub enum ProtocolError {
     ErasureError(String),
     #[error("Not enough shards to reconstruct data ({received}/{needed})")]
     NotEnoughShards { received: usize, needed: usize },
+    #[error("Relay TTL expired (hop count exceeded)")]
+    TtlExpired,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -34,6 +36,7 @@ pub enum FrameType {
     Answer = 2,
     Data = 3,
     Ack = 4,
+    Relay = 5,
 }
 
 impl TryFrom<u8> for FrameType {
@@ -45,6 +48,7 @@ impl TryFrom<u8> for FrameType {
             2 => Ok(FrameType::Answer),
             3 => Ok(FrameType::Data),
             4 => Ok(FrameType::Ack),
+            5 => Ok(FrameType::Relay),
             _ => Err(ProtocolError::FrameTooShort),
         }
     }
@@ -283,4 +287,95 @@ impl ErasureCoder {
 
 pub mod relay;
 pub use relay::{RelayError, RelayHeader, RelayPacket, StoreAndForwardQueue};
+
+/// Multi-hop store-and-forward relay envelope (Section 4.6 & Section 3 Architecture Native)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayEnvelope {
+    pub ttl: u8,
+    pub recipient_hash: [u8; 4],
+    pub origin_hash: [u8; 4],
+    pub inner_payload: Vec<u8>,
+}
+
+impl RelayEnvelope {
+    pub fn new(ttl: u8, recipient_hash: [u8; 4], origin_hash: [u8; 4], inner_payload: Vec<u8>) -> Self {
+        Self {
+            ttl,
+            recipient_hash,
+            origin_hash,
+            inner_payload,
+        }
+    }
+
+    /// Decrement TTL on hop. Returns error if expired.
+    pub fn hop(&mut self) -> Result<u8, ProtocolError> {
+        if self.ttl == 0 {
+            return Err(ProtocolError::TtlExpired);
+        }
+        self.ttl -= 1;
+        if self.ttl == 0 {
+            return Err(ProtocolError::TtlExpired);
+        }
+        Ok(self.ttl)
+    }
+
+    /// Serialize relay envelope into bytes: [ttl: 1B][recipient_hash: 4B][origin_hash: 4B][payload]
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(1 + 4 + 4 + self.inner_payload.len());
+        buf.push(self.ttl);
+        buf.extend_from_slice(&self.recipient_hash);
+        buf.extend_from_slice(&self.origin_hash);
+        buf.extend_from_slice(&self.inner_payload);
+        buf
+    }
+
+    /// Deserialize relay envelope
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, ProtocolError> {
+        if bytes.len() < 9 {
+            return Err(ProtocolError::FrameTooShort);
+        }
+        let ttl = bytes[0];
+        let mut recipient_hash = [0u8; 4];
+        recipient_hash.copy_from_slice(&bytes[1..5]);
+        let mut origin_hash = [0u8; 4];
+        origin_hash.copy_from_slice(&bytes[5..9]);
+        let inner_payload = bytes[9..].to_vec();
+
+        Ok(Self {
+            ttl,
+            recipient_hash,
+            origin_hash,
+            inner_payload,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relay_envelope_serialization_and_hop() {
+        let recipient_hash = [0x12, 0x34, 0x56, 0x78];
+        let origin_hash = [0xAB, 0xCD, 0xEF, 0x01];
+        let payload = b"secret-opaque-e2ee-payload".to_vec();
+
+        let mut envelope = RelayEnvelope::new(3, recipient_hash, origin_hash, payload.clone());
+        let serialized = envelope.serialize();
+        assert_eq!(serialized.len(), 1 + 4 + 4 + payload.len());
+
+        let decoded = RelayEnvelope::deserialize(&serialized).expect("deserialization failed");
+        assert_eq!(decoded.ttl, 3);
+        assert_eq!(decoded.recipient_hash, recipient_hash);
+        assert_eq!(decoded.origin_hash, origin_hash);
+        assert_eq!(decoded.inner_payload, payload);
+
+        // Hop 1 (3 -> 2)
+        assert_eq!(envelope.hop(), Ok(2));
+        // Hop 2 (2 -> 1)
+        assert_eq!(envelope.hop(), Ok(1));
+        // Hop 3 (1 -> 0: expired)
+        assert_eq!(envelope.hop(), Err(ProtocolError::TtlExpired));
+    }
+}
 

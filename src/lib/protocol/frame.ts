@@ -12,6 +12,7 @@ export const FrameType = {
   Data: 6,
   Ack: 7,
   Done: 8,
+  Relay: 9,
 } as const;
 
 export type FrameTypeId = (typeof FrameType)[keyof typeof FrameType];
@@ -83,3 +84,34 @@ export function decodeFrame(buf: Uint8Array): Frame | null {
     payload: buf.slice(9, 9 + len),
   };
 }
+
+/**
+ * Enveloppe de relais multi-sauts (Store-and-Forward / Section 4.6).
+ * [ttl: 1o][recipientHash: 4o][originHash: 4o][innerPayload: n o]
+ */
+export interface RelayEnvelope {
+  ttl: number;
+  recipientHash: Uint8Array; // 4 octets
+  originHash: Uint8Array;    // 4 octets
+  innerPayload: Uint8Array;
+}
+
+export function encodeRelayEnvelope(env: RelayEnvelope): Uint8Array {
+  const out = new Uint8Array(1 + 4 + 4 + env.innerPayload.length);
+  out[0] = env.ttl;
+  out.set(env.recipientHash.subarray(0, 4), 1);
+  out.set(env.originHash.subarray(0, 4), 5);
+  out.set(env.innerPayload, 9);
+  return out;
+}
+
+export function decodeRelayEnvelope(buf: Uint8Array): RelayEnvelope | null {
+  if (buf.length < 9) return null;
+  return {
+    ttl: buf[0],
+    recipientHash: buf.slice(1, 5),
+    originHash: buf.slice(5, 9),
+    innerPayload: buf.slice(9),
+  };
+}
+

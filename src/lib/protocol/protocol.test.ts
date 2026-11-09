@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { crc16, encodeFrame, decodeFrame, Frame, FrameType } from './frame';
+import {
+  crc16,
+  encodeFrame,
+  decodeFrame,
+  Frame,
+  FrameType,
+  encodeRelayEnvelope,
+  decodeRelayEnvelope,
+  RelayEnvelope,
+} from './frame';
 import {
   AckBitmap,
   FrameAssembler,
@@ -162,6 +171,37 @@ describe('Phase 4 — Protocole de Transfert (Trames, CRC-16 & ARQ)', () => {
         expect(assembled![offset + 1]).toBe(i * 2);
         expect(assembled![offset + 2]).toBe(i * 3);
       }
+    });
+  });
+
+  describe('Relais Multi-Sauts (Store-and-Forward / Section 4.6)', () => {
+    it('sérialise et désérialise fidèlement une enveloppe relais', () => {
+      const recipientHash = new Uint8Array([0x12, 0x34, 0x56, 0x78]);
+      const originHash = new Uint8Array([0xab, 0xcd, 0xef, 0x01]);
+      const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+
+      const envelope: RelayEnvelope = {
+        ttl: 3,
+        recipientHash,
+        originHash,
+        innerPayload: payload,
+      };
+
+      const encoded = encodeRelayEnvelope(envelope);
+      expect(encoded.length).toBe(1 + 4 + 4 + 8);
+      expect(encoded[0]).toBe(3);
+
+      const decoded = decodeRelayEnvelope(encoded);
+      expect(decoded).not.toBeNull();
+      expect(decoded?.ttl).toBe(3);
+      expect(Array.from(decoded?.recipientHash || [])).toEqual([0x12, 0x34, 0x56, 0x78]);
+      expect(Array.from(decoded?.originHash || [])).toEqual([0xab, 0xcd, 0xef, 0x01]);
+      expect(Array.from(decoded?.innerPayload || [])).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    });
+
+    it('rejette les tampons de relais tronqués (< 9 octets)', () => {
+      const truncated = new Uint8Array([3, 0x12, 0x34, 0x56]);
+      expect(decodeRelayEnvelope(truncated)).toBeNull();
     });
   });
 });
