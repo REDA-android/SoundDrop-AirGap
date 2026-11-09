@@ -38,6 +38,7 @@ import {
   sha256,
 } from '@/lib/crypto/session';
 import { ProfileId } from '@/lib/modem/types';
+import { selectAdaptiveProfile } from '@/lib/modem/adaptive-profile';
 import { calculateRmsDbfs, classifyNoiseLevel } from '@/lib/audio/rms';
 import { startCapture, CaptureHandle } from '@/lib/audio/capture';
 import { playSamples } from '@/lib/audio/playback';
@@ -720,6 +721,10 @@ export function ThreeStepTransfer() {
               <span>Silence (-96 dBFS)</span>
               <span>Niveau actuel : {rmsDbfs.toFixed(1)} dBFS</span>
               <span>Seuil max (-30 dBFS)</span>
+            </div>
+            <div className="text-[11px] font-mono text-[#A1A1AA] bg-black/30 px-3 py-2 rounded-lg border border-white/5 flex items-center gap-2">
+              <span className="text-[#38BDF8] font-bold">⚡ Débit adaptatif :</span>
+              <span>{selectAdaptiveProfile(rmsDbfs, 'audible', inputType === 'file' ? (fileBytes?.length || 32) : textContent.length).rationale}</span>
             </div>
           </div>
 

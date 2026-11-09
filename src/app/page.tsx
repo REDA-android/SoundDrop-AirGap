@@ -178,21 +178,12 @@ export default function SoundDropApp() {
     }
   }, []);
 
-  // Purge any stale Service Worker caches so new builds load immediately with 0ms lag
+  // Register Service Worker for air-gapped offline operation
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if ('caches' in window) {
-        caches
-          .keys()
-          .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-          .catch(() => {});
-      }
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker
-          .getRegistrations()
-          .then((regs) => Promise.all(regs.map((r) => r.update())))
-          .catch(() => {});
-      }
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .catch(() => {});
     }
   }, []);
 

@@ -54,5 +54,8 @@ test: phase0 phase1 phase2 phase3 phase4 phase5 phase6 tools
 run:
 	$(XVFB) env $(LD_LIB) cargo run -p sounddrop-app
 
+deb:
+	@bash tools/package_deb.sh
+
 clean:
 	cargo clean

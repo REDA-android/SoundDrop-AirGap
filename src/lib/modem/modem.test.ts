@@ -69,4 +69,38 @@ describe('Phase 3 — Modems Acoustiques (ggwave & MFSK)', () => {
       modem.dispose();
     }, 15000);
   });
+
+  describe('Modem Acoustique Adaptatif (Sélection dynamique)', () => {
+    it('sélectionne audible-fastest en environnement calme (-60 dBFS)', async () => {
+      const { selectAdaptiveProfile } = await import('./adaptive-profile');
+      const res = selectAdaptiveProfile(-60, 'audible', 32);
+      expect(res.profile).toBe('audible-fastest');
+      expect(res.throughputBps).toBe(27);
+      expect(res.durationSeconds).toBeGreaterThan(0);
+    });
+
+    it('sélectionne audible-fast en environnement moyennement bruyant (-40 dBFS)', async () => {
+      const { selectAdaptiveProfile } = await import('./adaptive-profile');
+      const res = selectAdaptiveProfile(-40, 'audible', 32);
+      expect(res.profile).toBe('audible-fast');
+      expect(res.throughputBps).toBe(15);
+    });
+
+    it('sélectionne audible-normal en environnement très bruyant (-25 dBFS)', async () => {
+      const { selectAdaptiveProfile } = await import('./adaptive-profile');
+      const res = selectAdaptiveProfile(-25, 'audible', 32);
+      expect(res.profile).toBe('audible-normal');
+      expect(res.throughputBps).toBe(7);
+    });
+
+    it('adapte correctement les profils en mode ultrasonique', async () => {
+      const { selectAdaptiveProfile } = await import('./adaptive-profile');
+      const calm = selectAdaptiveProfile(-60, 'ultrasound', 16);
+      expect(calm.profile).toBe('ultrasound-fastest');
+
+      const noisy = selectAdaptiveProfile(-20, 'ultrasound', 16);
+      expect(noisy.profile).toBe('ultrasound-normal');
+    });
+  });
 });
+
