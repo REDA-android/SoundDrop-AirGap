@@ -42,10 +42,12 @@ export const Header: React.FC<HeaderProps> = ({
             <h1 className="text-base sm:text-lg font-bold tracking-tight text-[#F4F4F6]">
               SoundDrop Studio
             </h1>
-            <DrawablySketchBadge text="v6.0 POLYGLOT DSP" accent="orange" />
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-orange-500/10 text-orange-400 border border-orange-500/30">
+              version web
+            </span>
           </div>
           <p className="font-mono text-[11px] text-[#A1A1AA] hidden sm:block">
-            Rust • Go • C/C++ • Python • R • Ruby • 10 Protocoles P2P Sans Mock
+            Transfert de données par ondes sonores & WebRTC
           </p>
         </div>
       </div>
@@ -74,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="hidden lg:flex items-center gap-1.5 rounded-xl bg-[#14141A] border border-white/10 px-3 py-1.5 font-mono text-xs text-[#A1A1AA]">
           <ShieldCheck aria-hidden="true" className="h-3.5 w-3.5 text-[#10B981]" />
-          <span>DTLS 1.3 / SHA-256</span>
+          <span>DTLS / SHA-256</span>
         </div>
 
         {onToggleSettings && (

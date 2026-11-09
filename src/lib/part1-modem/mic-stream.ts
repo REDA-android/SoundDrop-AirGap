@@ -13,7 +13,7 @@ export class MicStreamCapture {
   private audioCtx: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private processorNode: AudioWorkletNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private isCapturing = false;
 
@@ -50,17 +50,16 @@ export class MicStreamCapture {
 
     this.sourceNode.connect(this.analyserNode);
 
-    // Audio stream slice processor
-    const bufferSize = options.bufferSize || 2048;
-    this.processorNode = this.audioCtx.createScriptProcessor(bufferSize, 1, 1);
-    this.processorNode.onaudioprocess = (e) => {
+    // AudioWorklet stream processor (sans connexion à destination pour éliminer le larsen)
+    await this.audioCtx.audioWorklet.addModule('/worklets/capture.js');
+    const workletNode = new AudioWorkletNode(this.audioCtx, 'capture-processor');
+    workletNode.port.onmessage = (e: MessageEvent<Float32Array>) => {
       if (!this.isCapturing) return;
-      const channel = e.inputBuffer.getChannelData(0);
-      options.onPcmChunk(channel);
+      options.onPcmChunk(e.data);
     };
 
-    this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioCtx.destination); // Required keepalive
+    this.sourceNode.connect(workletNode);
+    this.processorNode = workletNode;
 
     this.isCapturing = true;
     return this.analyserNode;
@@ -69,7 +68,6 @@ export class MicStreamCapture {
   public stop(): void {
     if (this.processorNode) {
       this.processorNode.disconnect();
-      this.processorNode.onaudioprocess = null;
       this.processorNode = null;
     }
 

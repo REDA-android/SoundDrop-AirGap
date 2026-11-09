@@ -62,6 +62,19 @@ function minifySdp(sdp: string): string {
     .join('\r\n') + '\r\n';
 }
 
+export const WEBRTC_LAN_FAILED_MESSAGE =
+  'Échec de la connexion directe. Vos appareils sont peut-être sur des sous-réseaux différents ou le pare-feu bloque l’UDP.';
+
+export function isLanCandidate(candLine: string): boolean {
+  if (!candLine || !candLine.includes('typ host')) return false;
+  const isPrivateIpv4 =
+    candLine.includes(' 192.168.') ||
+    candLine.includes(' 10.') ||
+    / 172\.(1[6-9]|2[0-9]|3[0-1])\./.test(candLine);
+  const isMdns = candLine.includes('.local');
+  return isPrivateIpv4 || isMdns;
+}
+
 /**
  * Compresses an RTCSessionDescriptionInit + ICE candidates into a compact `SDO1:...` or `SDA1:...` offline token.
  */
@@ -74,7 +87,7 @@ export function encodeOfflineSdpToken(
     s: minifySdp(desc.sdp || ''),
     c: candidates
       .map((c) => c.candidate || '')
-      .filter((line) => line.length > 0 && (line.includes('typ host') || line.includes('typ srflx')))
+      .filter((line) => line.length > 0 && isLanCandidate(line))
       .slice(0, 6),
   };
   const jsonBytes = strToU8(JSON.stringify(bundle));

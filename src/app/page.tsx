@@ -39,6 +39,7 @@ import {
   decodeOfflineSdpToken,
   encodeDirectAcousticPayload,
   decodeDirectAcousticPayload,
+  WEBRTC_LAN_FAILED_MESSAGE,
 } from '@/lib/webrtc/offline-sdp';
 import {
   SavedFileResult,
@@ -67,7 +68,8 @@ import { PeerCard } from '@/components/transfer/PeerCard';
 import { TransferMonitor } from '@/components/transfer/TransferMonitor';
 import { MeshParticleCanvas } from '@/components/canvas/MeshParticleCanvas';
 import { AcousticRadarStudioWorkspace } from '@/components/studio/AcousticRadarStudioWorkspace';
-import { SoundDropNativeApp } from '@/components/native-system/SoundDropNativeApp';
+import { ThreeStepTransfer } from '@/components/transfer/ThreeStepTransfer';
+import { RoadmapDocsPanel } from '@/components/transfer/RoadmapDocsPanel';
 import { Layers } from 'lucide-react';
 import {
   MultiProtocolPanel,
@@ -76,12 +78,18 @@ import {
 } from '@/components/transfer/MultiProtocolPanel';
 
 type AppMode = 'IDLE' | 'TRANSMITTING' | 'RECEIVING' | 'TRANSFERRING' | 'COMPLETED' | 'ERROR';
-type UnifiedWorkspaceView = 'ALL_FUSED' | 'HUB_10_PROTOCOLS' | 'RADAR_16FSK_STUDIO' | 'PROXIMITY_PAIRING' | 'NATIVE_SYSTEM_50_REPOS';
+type UnifiedWorkspaceView =
+  | 'THREE_STEP_TRANSFER'
+  | 'ALL_FUSED'
+  | 'HUB_10_PROTOCOLS'
+  | 'RADAR_16FSK_STUDIO'
+  | 'PROXIMITY_PAIRING'
+  | 'NATIVE_SYSTEM_50_REPOS';
 
 export default function SoundDropApp() {
   // Primary Navigation Tab (Send vs Receive)
   const [activeTab, setActiveTab] = useState<'SEND' | 'RECEIVE'>('SEND');
-  const [workspaceView, setWorkspaceView] = useState<UnifiedWorkspaceView>('ALL_FUSED');
+  const [workspaceView, setWorkspaceView] = useState<UnifiedWorkspaceView>('THREE_STEP_TRANSFER');
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [activeProtocol, setActiveProtocol] = useState<UnifiedProtocol>('ACOUSTIC');
 
@@ -377,6 +385,9 @@ export default function SoundDropApp() {
           if (state === 'connected') {
             setErrorMessage(null);
             setStatusMessage('LINKED OFFLINE');
+          } else if (state === 'failed') {
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
+            setMode('ERROR');
           }
         },
         onDataChannelReady: (channel) => {
@@ -479,7 +490,7 @@ export default function SoundDropApp() {
             }
             setStatusMessage('LINKED');
           } else if (state === 'failed') {
-            setErrorMessage('La connexion P2P a échoué. Utilisez le mode Hors-Ligne ou réessayez.');
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
             setMode('ERROR');
           }
         },
@@ -650,6 +661,9 @@ export default function SoundDropApp() {
           if (state === 'connected') {
             setErrorMessage(null);
             setStatusMessage('LINKED');
+          } else if (state === 'failed') {
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
+            setMode('ERROR');
           }
         },
         onDataChannelReady: (channel) => {
@@ -830,20 +844,20 @@ export default function SoundDropApp() {
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[#FF6A1F]" />
               <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#F4F4F6]">
-                Architecture Unifiée Fusionnée (Tous les Dépôts & Modules Actifs — Zéro Mock)
+                Poste de Commande SoundDrop (Version Web)
               </span>
             </div>
             <span className="font-mono text-[10px] text-[#34D399]">
-              4 Moteurs Réels Chargés • État Initial Vide
+              Modem ggwave WASM & WebRTC actif
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-1.5 bg-[#0A0A0C] p-1.5 rounded-xl border border-white/10">
             {[
-              { id: 'ALL_FUSED', label: '★ Vue Totale Fusionnée (4-en-1)', badge: 'COMPLET' },
-              { id: 'HUB_10_PROTOCOLS', label: '1. Hub 10 Protocoles & Dossiers', badge: 'P2P/LAN' },
-              { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Bulles & Studio 16-FSK', badge: 'RS(80,64)' },
-              { id: 'PROXIMITY_PAIRING', label: '3. Appairage iPhone ↔ Mac/PC', badge: 'CHIRP' },
-              { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Système Natif A/B/C & 50 Dépôts', badge: 'AVX2/TOF' },
+              { id: 'THREE_STEP_TRANSFER', label: '★ Parcours 3 Écrans', badge: 'PRINCIPAL' },
+              { id: 'PROXIMITY_PAIRING', label: '1. Appairage Acoustique', badge: 'CHIRP' },
+              { id: 'RADAR_16FSK_STUDIO', label: '2. Radar Sonore & 16-FSK', badge: 'MFSK' },
+              { id: 'HUB_10_PROTOCOLS', label: '3. WebRTC LAN & Fichiers', badge: 'LAN' },
+              { id: 'NATIVE_SYSTEM_50_REPOS', label: '4. Documentation & Roadmap', badge: 'DOCS' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -966,8 +980,15 @@ export default function SoundDropApp() {
           </section>
         )}
 
+        {/* PARCOURS PRINCIPAL EN 3 ÉTAPES CLAIRES (PHASE 6) */}
+        {(workspaceView === 'THREE_STEP_TRANSFER' || workspaceView === 'ALL_FUSED') && (
+          <section aria-label="Parcours de transfert acoustique en 3 étapes" className="w-full">
+            <ThreeStepTransfer />
+          </section>
+        )}
+
         {/* MODULE 1: 2-Column 10-Protocol Studio Grid */}
-        {(workspaceView === 'ALL_FUSED' || workspaceView === 'HUB_10_PROTOCOLS') && (
+        {workspaceView === 'HUB_10_PROTOCOLS' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* LEFT COLUMN (7 Cols): Primary File/Directory Source & P2P Session Controller */}
           <Card className="lg:col-span-7 flex flex-col gap-5">
@@ -1502,14 +1523,10 @@ export default function SoundDropApp() {
           </section>
         )}
 
-        {/* MODULE 4: Native Vector Design System (Sections A, B & C + 50 Open-Source Repos Catalog) */}
+        {/* MODULE 4: Specifications, Documentation & Honest Roadmap */}
         {(workspaceView === 'ALL_FUSED' || workspaceView === 'NATIVE_SYSTEM_50_REPOS') && (
-          <section aria-label="Système Vectoriel Natif Sections A/B/C et Catalogue 50 Dépôts" className="w-full flex flex-col gap-4">
-            <SoundDropNativeApp
-              liveSnrDb={snrDb}
-              liveDominantFreq={dominantFreq || acousticCurrentFreq || 0}
-              selectedFile={selectedFile}
-            />
+          <section aria-label="Feuille de Route & Documentation" className="w-full flex flex-col gap-4">
+            <RoadmapDocsPanel />
           </section>
         )}
       </main>

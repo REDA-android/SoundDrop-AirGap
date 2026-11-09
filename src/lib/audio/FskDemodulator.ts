@@ -31,7 +31,6 @@ export class FskDemodulator {
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
-  private scriptProcessor: ScriptProcessorNode | null = null;
   private mediaStream: MediaStream | null = null;
   private animationFrameId: number | null = null;
   private bandMode: AcousticBandMode = 'AUDIBLE';
@@ -164,35 +163,19 @@ export class FskDemodulator {
     this.analyser.smoothingTimeConstant = 0.05;
     source.connect(this.analyser);
 
-    // 1. Try modern AudioWorkletNode ('/audio-processor.js') first
-    let workletAttached = false;
-    if (this.audioCtx.audioWorklet) {
-      try {
-        await this.audioCtx.audioWorklet.addModule('/audio-processor.js');
-        this.workletNode = new AudioWorkletNode(this.audioCtx, 'ultrasonic-processor');
-        this.workletNode.port.onmessage = (event) => {
-          if (event.data?.type === 'AUDIO_CHUNK' && event.data.buffer) {
-            const floatChunk = new Float32Array(event.data.buffer);
-            this.handlePcmFloatChunk(floatChunk);
-          }
-        };
-        source.connect(this.workletNode);
-        this.workletNode.connect(this.audioCtx.destination);
-        workletAttached = true;
-      } catch {
-        workletAttached = false;
-      }
-    }
-
-    // 2. Fallback to ScriptProcessorNode if AudioWorklet unavailable
-    if (!workletAttached) {
-      this.scriptProcessor = this.audioCtx.createScriptProcessor(1024, 1, 1);
-      this.scriptProcessor.onaudioprocess = (event) => {
-        const inputBuffer = event.inputBuffer.getChannelData(0);
-        this.handlePcmFloatChunk(inputBuffer);
+    // 1. AudioWorklet capture-processor (sans connexion à destination pour éliminer le larsen)
+    try {
+      await this.audioCtx.audioWorklet.addModule('/worklets/capture.js');
+      this.workletNode = new AudioWorkletNode(this.audioCtx, 'capture-processor');
+      this.workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        if (event.data) {
+          this.handlePcmFloatChunk(event.data);
+        }
       };
-      source.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.audioCtx.destination);
+      source.connect(this.workletNode);
+      // NOTE: Interdiction absolue de connecter le worklet à ctx.destination (anti-larsen)
+    } catch (e) {
+      console.warn('[FskDemodulator] AudioWorklet capture warning:', e);
     }
 
     this.transitionState(
@@ -442,10 +425,6 @@ export class FskDemodulator {
     if (this.workletNode) {
       this.workletNode.disconnect();
       this.workletNode = null;
-    }
-    if (this.scriptProcessor) {
-      this.scriptProcessor.disconnect();
-      this.scriptProcessor = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
