@@ -6,6 +6,7 @@ members = [
     "crates/crypto",
     "crates/payload",
     "crates/orbital",
+    "crates/mesh",
     "app",
 ]
 resolver = "2"

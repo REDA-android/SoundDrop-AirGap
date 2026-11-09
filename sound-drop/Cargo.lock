@@ -5119,6 +5119,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sounddrop-mesh"
+version = "0.2.0"
+dependencies = [
+ "crc",
+ "sounddrop-crypto",
+ "sounddrop-protocol",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sounddrop-modem"
 version = "0.2.0"
 dependencies = [
