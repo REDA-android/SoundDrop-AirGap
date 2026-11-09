@@ -11,7 +11,7 @@ export interface Capability {
 export const CAPABILITIES: Capability[] = [
   { id: 'acoustic-audible', label: 'Transfert sonore audible', status: 'real', verifiedBy: 'src/lib/modem/modem.test.ts' },
   { id: 'acoustic-ultrasonic', label: 'Transfert ultrasonique', status: 'experimental' },
-  { id: 'text-transfer', label: 'Envoi de texte / URL', status: 'experimental' },
+  { id: 'text-transfer', label: 'Envoi de texte / URL', status: 'real', verifiedBy: 'src/lib/protocol/protocol.test.ts' },
   { id: 'file-transfer', label: 'Envoi de petits fichiers', status: 'planned' },
   { id: 'encryption', label: 'Chiffrement de bout en bout', status: 'planned' },
   { id: 'sas-pairing', label: 'Vérification par code court (SAS)', status: 'planned' },
