@@ -9,7 +9,7 @@ export interface Capability {
 }
 
 export const CAPABILITIES: Capability[] = [
-  { id: 'acoustic-audible', label: 'Transfert sonore audible', status: 'experimental' },
+  { id: 'acoustic-audible', label: 'Transfert sonore audible', status: 'real', verifiedBy: 'src/lib/modem/modem.test.ts' },
   { id: 'acoustic-ultrasonic', label: 'Transfert ultrasonique', status: 'experimental' },
   { id: 'text-transfer', label: 'Envoi de texte / URL', status: 'experimental' },
   { id: 'file-transfer', label: 'Envoi de petits fichiers', status: 'planned' },
