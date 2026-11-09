@@ -39,6 +39,7 @@ import {
   decodeOfflineSdpToken,
   encodeDirectAcousticPayload,
   decodeDirectAcousticPayload,
+  WEBRTC_LAN_FAILED_MESSAGE,
 } from '@/lib/webrtc/offline-sdp';
 import {
   SavedFileResult,
@@ -384,6 +385,9 @@ export default function SoundDropApp() {
           if (state === 'connected') {
             setErrorMessage(null);
             setStatusMessage('LINKED OFFLINE');
+          } else if (state === 'failed') {
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
+            setMode('ERROR');
           }
         },
         onDataChannelReady: (channel) => {
@@ -486,7 +490,7 @@ export default function SoundDropApp() {
             }
             setStatusMessage('LINKED');
           } else if (state === 'failed') {
-            setErrorMessage('La connexion P2P a échoué. Utilisez le mode Hors-Ligne ou réessayez.');
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
             setMode('ERROR');
           }
         },
@@ -657,6 +661,9 @@ export default function SoundDropApp() {
           if (state === 'connected') {
             setErrorMessage(null);
             setStatusMessage('LINKED');
+          } else if (state === 'failed') {
+            setErrorMessage(WEBRTC_LAN_FAILED_MESSAGE);
+            setMode('ERROR');
           }
         },
         onDataChannelReady: (channel) => {
