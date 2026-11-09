@@ -16,7 +16,7 @@ export class AudioManager {
   private analyser: AnalyserNode | null = null;
   private mediaStream: MediaStream | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private processorNode: AudioWorkletNode | null = null;
 
   private currentSourceNode: AudioBufferSourceNode | null = null;
 
@@ -113,16 +113,16 @@ export class AudioManager {
         this.micSource.connect(this.analyser);
       }
 
-      // ScriptProcessor with 2048 buffer size (42.6ms buffer at 48kHz)
-      this.processorNode = ctx.createScriptProcessor(2048, 1, 1);
-      this.processorNode.onaudioprocess = (evt: AudioProcessingEvent) => {
-        const inputData = evt.inputBuffer.getChannelData(0);
-        this.demodulator.processAudioChunk(inputData);
+      // AudioWorklet avec tampon de 2048 échantillons (sans connexion à destination pour éliminer le larsen)
+      await ctx.audioWorklet.addModule('/worklets/capture.js');
+      const workletNode = new AudioWorkletNode(ctx, 'capture-processor');
+      workletNode.port.onmessage = (evt: MessageEvent<Float32Array>) => {
+        this.demodulator.processAudioChunk(evt.data);
       };
 
-      this.micSource.connect(this.processorNode);
-      // Connect to dummy silent destination to keep script processor running in Chrome/Safari
-      this.processorNode.connect(ctx.destination);
+      this.micSource.connect(workletNode);
+      // NOTE: Ne JAMAIS connecter à ctx.destination (anti-larsen)
+      this.processorNode = workletNode;
 
       this.isListening = true;
     } catch (err) {
@@ -137,7 +137,6 @@ export class AudioManager {
   public stopListening(): void {
     if (this.processorNode) {
       this.processorNode.disconnect();
-      this.processorNode.onaudioprocess = null;
       this.processorNode = null;
     }
 
