@@ -1,6 +1,7 @@
 # SoundDrop v5.0 — Unified Open-Source P2P & Multi-Protocol File Transfer Hub
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/REDA-android/SoundDrop-AirGap)
+[![Live Demo on GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2ea44f?style=flat&logo=github)](https://reda-android.github.io/SoundDrop-AirGap/)
 
 SoundDrop v5.0 is an end-to-end encrypted, zero-mock multi-protocol file and directory transfer platform built with **Next.js 14 (App Router & Edge Runtime)**, **WebRTC Direct DataChannels**, **WebAudio DSP (GGWave 4-FSK)**, **WebCrypto (ECDH P-256 / AES-256-GCM / PBKDF2)**, and the **File System Access API**.
 
